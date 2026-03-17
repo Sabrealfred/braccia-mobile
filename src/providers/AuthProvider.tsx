@@ -7,11 +7,14 @@ import {
 } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
-import type { Sale } from "../types";
+import type { UserProfile } from "../types";
 
 interface AuthContextType {
   user: User | null;
-  sale: Sale | null;
+  /** User profile from user_profiles table */
+  profile: UserProfile | null;
+  /** @deprecated Backward-compat alias for profile — use `profile` instead */
+  sale: UserProfile | null;
   session: Session | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
@@ -23,7 +26,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [sale, setSale] = useState<Sale | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -32,7 +35,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchSaleProfile(session.user.id);
+        fetchUserProfile(session.user.id, session.user.email);
       } else {
         setLoading(false);
       }
@@ -44,9 +47,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchSaleProfile(session.user.id);
+        fetchUserProfile(session.user.id, session.user.email);
       } else {
-        setSale(null);
+        setProfile(null);
         setLoading(false);
       }
     });
@@ -54,13 +57,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  async function fetchSaleProfile(userId: string) {
+  async function fetchUserProfile(userId: string, email?: string | null) {
+    // user_profiles.id IS the auth user id
     const { data } = await supabase
-      .from("sales")
+      .from("user_profiles")
       .select("*")
-      .eq("user_id", userId)
+      .eq("id", userId)
       .single();
-    setSale(data);
+
+    if (data) {
+      setProfile(data as UserProfile);
+    } else {
+      // No profile row found — create a minimal in-memory profile from auth data
+      // so the app can still render without crashing
+      const fallbackName = email?.split("@")[0] ?? "User";
+      setProfile({
+        id: userId,
+        email: email ?? "",
+        first_name: fallbackName,
+        last_name: "",
+        full_name: fallbackName,
+        role: "user",
+        avatar_url: null,
+        is_active: true,
+        phone: null,
+        permissions: null,
+        preferences: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        last_login_at: null,
+        last_active_at: null,
+        two_factor_enabled: false,
+        metadata: null,
+        family_id: null,
+      });
+    }
     setLoading(false);
   }
 
@@ -74,7 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function signOut() {
     await supabase.auth.signOut();
-    setSale(null);
+    setProfile(null);
   }
 
   async function resetPassword(email: string) {
@@ -84,7 +115,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, sale, session, loading, signIn, signOut, resetPassword }}
+      value={{
+        user,
+        profile,
+        sale: profile, // backward compat
+        session,
+        loading,
+        signIn,
+        signOut,
+        resetPassword,
+      }}
     >
       {children}
     </AuthContext.Provider>

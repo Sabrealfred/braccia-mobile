@@ -26,14 +26,6 @@ function formatToday(): string {
   }).format(new Date());
 }
 
-const ACTIVE_STAGES = [
-  "sourcing",
-  "nda",
-  "dd",
-  "negotiation",
-  "legal",
-];
-
 type StageBadgeVariant = "default" | "gold" | "success" | "warning" | "danger" | "info" | "outline";
 
 function stageBadgeVariant(stage: string): StageBadgeVariant {
@@ -78,16 +70,47 @@ function stageLabel(stage: string): string {
   }
 }
 
+function priorityLabel(priority: string | undefined): string {
+  switch (priority) {
+    case "urgent":
+      return "Urgent";
+    case "high":
+      return "High";
+    case "medium":
+      return "Medium";
+    case "low":
+      return "Low";
+    default:
+      return priority || "";
+  }
+}
+
+function priorityBadgeVariant(priority: string | undefined): StageBadgeVariant {
+  switch (priority) {
+    case "urgent":
+      return "danger";
+    case "high":
+      return "warning";
+    case "medium":
+      return "info";
+    case "low":
+      return "default";
+    default:
+      return "outline";
+  }
+}
+
 // ---------------------------------------------------------------------------
-// Data hooks
+// Data hooks — Real matwal-premium Supabase schema
 // ---------------------------------------------------------------------------
 
-function useContactCount() {
+/** Total clients count (table: clients) */
+function useClientCount() {
   return useQuery({
-    queryKey: ["dashboard", "contactCount"],
+    queryKey: ["dashboard", "clientCount"],
     queryFn: async () => {
       const { count, error } = await supabase
-        .from("contacts")
+        .from("clients")
         .select("id", { count: "exact", head: true });
       if (error) throw error;
       return count ?? 0;
@@ -95,62 +118,70 @@ function useContactCount() {
   });
 }
 
-function useCompanyCount() {
+/** Entity count — clients with client_type='entity' serve as companies */
+function useEntityCount() {
   return useQuery({
-    queryKey: ["dashboard", "companyCount"],
+    queryKey: ["dashboard", "entityCount"],
     queryFn: async () => {
       const { count, error } = await supabase
-        .from("companies")
-        .select("id", { count: "exact", head: true });
+        .from("clients")
+        .select("id", { count: "exact", head: true })
+        .eq("client_type", "entity");
       if (error) throw error;
       return count ?? 0;
     },
   });
 }
 
+/** Active deals stats — is_active=true, sum deal_value for pipeline */
 function useDealsStats() {
   return useQuery({
     queryKey: ["dashboard", "dealsStats"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("deals").select("*");
+      const { data, error } = await supabase
+        .from("deals")
+        .select("*")
+        .eq("is_active", true);
       if (error) throw error;
       const deals = (data ?? []) as Deal[];
-      const active = deals.filter((d) => ACTIVE_STAGES.includes(d.stage));
-      const pipelineValue = active.reduce((sum, d) => sum + (d.amount ?? 0), 0);
-      return { activeCount: active.length, pipelineValue };
+      const pipelineValue = deals.reduce(
+        (sum, d) => sum + (d.deal_value ?? 0),
+        0
+      );
+      return { activeCount: deals.length, pipelineValue };
     },
   });
 }
 
+/** Recent deals — ordered by updated_at desc, limit 5 */
 function useRecentDeals() {
   return useQuery({
     queryKey: ["dashboard", "recentDeals"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("deals")
-        .select("*, companies(name)")
+        .select("*")
         .order("updated_at", { ascending: false })
         .limit(5);
       if (error) throw error;
-      return (data ?? []) as (Deal & { companies: { name: string } | null })[];
+      return (data ?? []) as Deal[];
     },
   });
 }
 
+/** Upcoming tasks — no completion_date, ordered by due_date, limit 5 */
 function useUpcomingTasks() {
   return useQuery({
     queryKey: ["dashboard", "upcomingTasks"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("tasks")
-        .select("*, contacts(first_name, last_name)")
-        .is("done_date", null)
+        .select("*")
+        .is("completion_date", null)
         .order("due_date")
         .limit(5);
       if (error) throw error;
-      return (data ?? []) as (Task & {
-        contacts: { first_name: string; last_name: string } | null;
-      })[];
+      return (data ?? []) as Task[];
     },
   });
 }
@@ -215,11 +246,7 @@ function StatsSkeleton() {
   );
 }
 
-function RecentDealRow({
-  deal,
-}: {
-  deal: Deal & { companies: { name: string } | null };
-}) {
+function RecentDealRow({ deal }: { deal: Deal }) {
   return (
     <div
       className="flex items-center gap-3 px-4 py-3 active:bg-[var(--bg-muted)] transition-colors"
@@ -259,7 +286,7 @@ function RecentDealRow({
           className="text-xs truncate mt-0.5"
           style={{ color: "var(--text-secondary)" }}
         >
-          {deal.companies?.name ?? "No company"}
+          {deal.stage ? stageLabel(deal.stage) : "No stage"}
         </p>
       </div>
 
@@ -269,7 +296,7 @@ function RecentDealRow({
           className="text-sm font-semibold tabular-nums"
           style={{ color: "var(--text-primary)" }}
         >
-          {formatCurrency(deal.amount)}
+          {formatCurrency(deal.deal_value ?? 0)}
         </span>
         <Badge variant={stageBadgeVariant(deal.stage)}>
           {stageLabel(deal.stage)}
@@ -279,17 +306,9 @@ function RecentDealRow({
   );
 }
 
-function TaskRow({
-  task,
-}: {
-  task: Task & {
-    contacts: { first_name: string; last_name: string } | null;
-  };
-}) {
-  const isOverdue = task.due_date && new Date(task.due_date) < new Date();
-  const contactName = task.contacts
-    ? `${task.contacts.first_name} ${task.contacts.last_name}`
-    : null;
+function TaskRow({ task }: { task: Task }) {
+  const isOverdue =
+    task.due_date && new Date(task.due_date) < new Date();
 
   return (
     <div
@@ -329,17 +348,9 @@ function TaskRow({
           className="text-sm font-medium"
           style={{ color: "var(--text-primary)" }}
         >
-          {task.text}
+          {task.title}
         </p>
         <div className="flex items-center gap-2 mt-1">
-          {contactName && (
-            <span
-              className="text-xs truncate"
-              style={{ color: "var(--text-secondary)" }}
-            >
-              {contactName}
-            </span>
-          )}
           {task.due_date && (
             <span
               className="text-xs shrink-0"
@@ -352,10 +363,10 @@ function TaskRow({
         </div>
       </div>
 
-      {/* Type badge */}
-      {task.type && (
-        <Badge variant="outline" className="shrink-0 mt-0.5">
-          {task.type}
+      {/* Priority badge */}
+      {task.priority && (
+        <Badge variant={priorityBadgeVariant(task.priority)} className="shrink-0 mt-0.5">
+          {priorityLabel(task.priority)}
         </Badge>
       )}
     </div>
@@ -413,14 +424,19 @@ function TasksSkeleton() {
 export function DashboardPage() {
   const { sale } = useAuth();
 
-  const contactCount = useContactCount();
-  const companyCount = useCompanyCount();
+  const clientCount = useClientCount();
+  const entityCount = useEntityCount();
   const dealsStats = useDealsStats();
   const recentDeals = useRecentDeals();
   const upcomingTasks = useUpcomingTasks();
 
   const statsLoading =
-    contactCount.isLoading || companyCount.isLoading || dealsStats.isLoading;
+    clientCount.isLoading || entityCount.isLoading || dealsStats.isLoading;
+
+  // Derive display name from sale profile (full_name or first_name)
+  const displayName = sale?.full_name
+    ? sale.full_name.split(" ")[0]
+    : sale?.first_name || "there";
 
   return (
     <div
@@ -435,7 +451,7 @@ export function DashboardPage() {
         >
           {getGreeting()},{" "}
           <span style={{ color: "var(--text-gold)" }}>
-            {sale?.first_name ?? "there"}
+            {displayName}
           </span>
         </h1>
         <p
@@ -469,9 +485,9 @@ export function DashboardPage() {
                 <path d="M16 3.13a4 4 0 0 1 0 7.75" />
               </svg>
             }
-            value={String(contactCount.data ?? 0)}
-            label="Total Contacts"
-            loading={contactCount.isLoading}
+            value={String(clientCount.data ?? 0)}
+            label="Total Clients"
+            loading={clientCount.isLoading}
           />
 
           <StatCard
@@ -490,9 +506,9 @@ export function DashboardPage() {
                 <polyline points="9 22 9 12 15 12 15 22" />
               </svg>
             }
-            value={String(companyCount.data ?? 0)}
-            label="Total Companies"
-            loading={companyCount.isLoading}
+            value={String(entityCount.data ?? 0)}
+            label="Entities"
+            loading={entityCount.isLoading}
           />
 
           <StatCard

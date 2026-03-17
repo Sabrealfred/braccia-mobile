@@ -14,7 +14,7 @@ import { PageHeader } from "../components/ui/PageHeader";
 import type { Deal } from "../types";
 
 // ---------------------------------------------------------------------------
-// Stage configuration
+// Stage configuration — matches real matwal-premium schema values
 // ---------------------------------------------------------------------------
 
 interface StageConfig {
@@ -24,17 +24,35 @@ interface StageConfig {
 }
 
 const STAGES: Record<string, StageConfig> = {
-  opportunity: { label: "Opportunity", variant: "info", color: "var(--info)" },
-  "proposal-sent": { label: "Proposal Sent", variant: "warning", color: "var(--warning)" },
-  "in-negotiation": { label: "In Negotiation", variant: "gold", color: "var(--gold)" },
-  won: { label: "Won", variant: "success", color: "var(--success)" },
-  lost: { label: "Lost", variant: "danger", color: "var(--danger)" },
-  cancelled: { label: "Cancelled", variant: "default", color: "var(--text-muted)" },
+  sourcing: { label: "Sourcing", variant: "default", color: "var(--text-muted)" },
+  nda: { label: "NDA", variant: "info", color: "var(--info)" },
+  dd: { label: "Due Diligence", variant: "warning", color: "var(--warning)" },
+  negotiation: { label: "Negotiation", variant: "gold", color: "var(--gold)" },
+  legal: { label: "Legal", variant: "info", color: "var(--info)" },
+  closed_won: { label: "Closed Won", variant: "success", color: "var(--success)" },
+  closed_lost: { label: "Closed Lost", variant: "danger", color: "var(--danger)" },
 };
 
-const STAGE_ORDER = ["opportunity", "proposal-sent", "in-negotiation", "won", "lost", "cancelled"];
+const STAGE_ORDER = ["sourcing", "nda", "dd", "negotiation", "legal", "closed_won", "closed_lost"];
 
-type DealWithCompany = Deal & { companies: { name: string } | null };
+type DealWithClient = Deal & { clients: { name: string } | null };
+
+// ---------------------------------------------------------------------------
+// Priority helpers
+// ---------------------------------------------------------------------------
+
+function priorityVariant(p?: string): "danger" | "warning" | "info" | "default" {
+  switch (p) {
+    case "critical":
+      return "danger";
+    case "high":
+      return "warning";
+    case "medium":
+      return "info";
+    default:
+      return "default";
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Data hook
@@ -46,8 +64,8 @@ function useDeals(search: string) {
     queryFn: async () => {
       let query = supabase
         .from("deals")
-        .select("*, companies(name)")
-        .order("index");
+        .select("*, clients(name)")
+        .order("created_at", { ascending: false });
 
       if (search.trim()) {
         query = query.ilike("name", `%${search.trim()}%`);
@@ -55,7 +73,7 @@ function useDeals(search: string) {
 
       const { data, error } = await query;
       if (error) throw error;
-      return (data ?? []) as DealWithCompany[];
+      return (data ?? []) as DealWithClient[];
     },
   });
 }
@@ -103,7 +121,7 @@ function ViewToggle({ mode, onChange }: { mode: ViewMode; onChange: (m: ViewMode
 // Kanban card
 // ---------------------------------------------------------------------------
 
-function KanbanCard({ deal, onClick }: { deal: DealWithCompany; onClick: () => void }) {
+function KanbanCard({ deal, onClick }: { deal: DealWithClient; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
@@ -119,12 +137,12 @@ function KanbanCard({ deal, onClick }: { deal: DealWithCompany; onClick: () => v
       >
         {deal.name}
       </p>
-      {deal.companies?.name && (
+      {deal.clients?.name && (
         <p
           className="text-xs truncate mt-0.5"
           style={{ color: "var(--text-muted)" }}
         >
-          {deal.companies.name}
+          {deal.clients.name}
         </p>
       )}
       <div className="flex items-center justify-between mt-2">
@@ -132,11 +150,13 @@ function KanbanCard({ deal, onClick }: { deal: DealWithCompany; onClick: () => v
           className="text-xs font-bold"
           style={{ color: "var(--text-gold)" }}
         >
-          {formatCurrency(deal.amount ?? 0)}
+          {formatCurrency(deal.deal_value ?? 0)}
         </span>
-        <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-          {formatRelativeDate(deal.updated_at)}
-        </span>
+        {deal.priority && (
+          <Badge variant={priorityVariant(deal.priority)}>
+            {deal.priority}
+          </Badge>
+        )}
       </div>
     </button>
   );
@@ -146,14 +166,14 @@ function KanbanCard({ deal, onClick }: { deal: DealWithCompany; onClick: () => v
 // Kanban view
 // ---------------------------------------------------------------------------
 
-function KanbanView({ deals, navigate }: { deals: DealWithCompany[]; navigate: ReturnType<typeof useNavigate> }) {
+function KanbanView({ deals, navigate }: { deals: DealWithClient[]; navigate: ReturnType<typeof useNavigate> }) {
   const grouped = useMemo(() => {
-    const map: Record<string, DealWithCompany[]> = {};
+    const map: Record<string, DealWithClient[]> = {};
     for (const stage of STAGE_ORDER) {
       map[stage] = [];
     }
     for (const deal of deals) {
-      const key = deal.stage ?? "opportunity";
+      const key = deal.stage ?? "sourcing";
       if (!map[key]) map[key] = [];
       map[key].push(deal);
     }
@@ -166,9 +186,9 @@ function KanbanView({ deals, navigate }: { deals: DealWithCompany[]; navigate: R
       style={{ minHeight: "calc(100dvh - 120px)" }}
     >
       {STAGE_ORDER.map((stage) => {
-        const cfg = STAGES[stage] ?? STAGES.opportunity;
+        const cfg = STAGES[stage] ?? STAGES.sourcing;
         const items = grouped[stage] ?? [];
-        const total = items.reduce((sum, d) => sum + (d.amount ?? 0), 0);
+        const total = items.reduce((sum, d) => sum + (d.deal_value ?? 0), 0);
 
         return (
           <div
@@ -247,18 +267,18 @@ function ListView({
   onSearchChange,
   navigate,
 }: {
-  deals: DealWithCompany[];
+  deals: DealWithClient[];
   search: string;
   onSearchChange: (v: string) => void;
   navigate: ReturnType<typeof useNavigate>;
 }) {
   const grouped = useMemo(() => {
-    const map: Record<string, DealWithCompany[]> = {};
+    const map: Record<string, DealWithClient[]> = {};
     for (const stage of STAGE_ORDER) {
       map[stage] = [];
     }
     for (const deal of deals) {
-      const key = deal.stage ?? "opportunity";
+      const key = deal.stage ?? "sourcing";
       if (!map[key]) map[key] = [];
       map[key].push(deal);
     }
@@ -278,7 +298,7 @@ function ListView({
           const items = grouped[stage] ?? [];
           if (items.length === 0) return null;
 
-          const cfg = STAGES[stage] ?? STAGES.opportunity;
+          const cfg = STAGES[stage] ?? STAGES.sourcing;
 
           return (
             <div key={stage}>
@@ -298,20 +318,25 @@ function ListView({
                       >
                         {deal.name}
                       </p>
-                      {deal.companies?.name && (
+                      {deal.clients?.name && (
                         <p
                           className="text-xs truncate mt-0.5"
                           style={{ color: "var(--text-muted)" }}
                         >
-                          {deal.companies.name}
+                          {deal.clients.name}
                         </p>
                       )}
                     </div>
-                    <Badge variant="gold">{formatCurrency(deal.amount ?? 0)}</Badge>
+                    <Badge variant="gold">{formatCurrency(deal.deal_value ?? 0)}</Badge>
                   </div>
 
                   <div className="flex items-center gap-2 mt-2">
                     <Badge variant={cfg.variant}>{cfg.label}</Badge>
+                    {deal.priority && (
+                      <Badge variant={priorityVariant(deal.priority)}>
+                        {deal.priority}
+                      </Badge>
+                    )}
                     <span
                       className="text-[10px] ml-auto"
                       style={{ color: "var(--text-muted)" }}

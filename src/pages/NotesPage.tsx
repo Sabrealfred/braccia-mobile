@@ -5,108 +5,87 @@ import { StickyNote, MessageSquare, ChevronRight, User, Briefcase } from "lucide
 import { supabase } from "../lib/supabase";
 import { formatRelativeDate } from "../lib/utils";
 import { SearchBar } from "../components/ui/SearchBar";
-import { Badge } from "../components/ui/Badge";
 import { EmptyState } from "../components/ui/EmptyState";
 import { ListSkeleton } from "../components/ui/Skeleton";
 import { MobileCard } from "../components/ui/MobileCard";
-import type { ContactNote, DealNote, NoteStatus } from "../types";
+import type { ConsultantNote } from "../types";
 
-// ── Note status colors ──────────────────────────────────────────
-const NOTE_STATUSES: NoteStatus[] = [
-  { value: "cold", label: "Cold", color: "#3b82f6" },
-  { value: "warm", label: "Warm", color: "#f59e0b" },
-  { value: "hot", label: "Hot", color: "#ef4444" },
-  { value: "in-progress", label: "In Progress", color: "#8b5cf6" },
-  { value: "success", label: "Success", color: "#10b981" },
-];
+// -- Types with joined relations --
 
-function getStatusColor(status: string): string | undefined {
-  return NOTE_STATUSES.find(
-    (s) => s.value.toLowerCase() === status.toLowerCase()
-  )?.color;
+interface NoteWithClient extends ConsultantNote {
+  clients?: { name: string } | null;
 }
 
-type BadgeVariant = "danger" | "warning" | "info" | "success" | "default";
-
-const statusVariantMap: Record<string, BadgeVariant> = {
-  hot: "danger",
-  warm: "warning",
-  cold: "info",
-  success: "success",
-  "in-progress": "default",
-};
-
-function getStatusVariant(status: string): BadgeVariant {
-  return statusVariantMap[status.toLowerCase()] ?? "default";
-}
-
-// ── Types with joined relations ─────────────────────────────────
-interface ContactNoteWithRelations extends ContactNote {
-  contacts?: { first_name: string; last_name: string } | null;
-  sales?: { first_name: string; last_name: string } | null;
-}
-
-interface DealNoteWithRelations extends DealNote {
+interface NoteWithDeal extends ConsultantNote {
   deals?: { name: string } | null;
-  sales?: { first_name: string; last_name: string } | null;
 }
 
-// ── Data fetchers ───────────────────────────────────────────────
-async function fetchContactNotes(
-  search: string
-): Promise<ContactNoteWithRelations[]> {
-  let query = supabase
-    .from("contactNotes")
-    .select(
-      "*, contacts(first_name, last_name), sales(first_name, last_name)"
-    )
-    .order("date", { ascending: false });
+// -- Data fetchers --
 
-  if (search.trim()) {
-    query = query.ilike("text", `%${search.trim()}%`);
+async function fetchClientNotes(search: string): Promise<NoteWithClient[]> {
+  try {
+    let query = supabase
+      .from("consultant_notes")
+      .select("*, clients(name)")
+      .not("client_id", "is", null)
+      .order("created_at", { ascending: false });
+
+    if (search.trim()) {
+      query = query.ilike("text", `%${search.trim()}%`);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return (data as NoteWithClient[]) ?? [];
+  } catch (err) {
+    // If table doesn't exist, return empty array gracefully
+    console.warn("consultant_notes query failed:", err);
+    return [];
   }
-
-  const { data, error } = await query;
-  if (error) throw error;
-  return (data as ContactNoteWithRelations[]) ?? [];
 }
 
-async function fetchDealNotes(
-  search: string
-): Promise<DealNoteWithRelations[]> {
-  let query = supabase
-    .from("dealNotes")
-    .select("*, deals(name), sales(first_name, last_name)")
-    .order("date", { ascending: false });
+async function fetchDealNotes(search: string): Promise<NoteWithDeal[]> {
+  try {
+    let query = supabase
+      .from("consultant_notes")
+      .select("*, deals(name)")
+      .not("deal_id", "is", null)
+      .order("created_at", { ascending: false });
 
-  if (search.trim()) {
-    query = query.ilike("text", `%${search.trim()}%`);
+    if (search.trim()) {
+      query = query.ilike("text", `%${search.trim()}%`);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return (data as NoteWithDeal[]) ?? [];
+  } catch (err) {
+    console.warn("consultant_notes (deal) query failed:", err);
+    return [];
   }
-
-  const { data, error } = await query;
-  if (error) throw error;
-  return (data as DealNoteWithRelations[]) ?? [];
 }
 
-// ── Tabs ────────────────────────────────────────────────────────
-type Tab = "contact" | "deal";
+// -- Tabs --
 
-// ── Page Component ──────────────────────────────────────────────
+type Tab = "client" | "deal";
+
+// -- Page Component --
+
 export function NotesPage() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
-  const [activeTab, setActiveTab] = useState<Tab>("contact");
+  const [activeTab, setActiveTab] = useState<Tab>("client");
 
-  // Contact notes query
+  // Client notes query
   const {
-    data: contactNotes,
-    isLoading: contactLoading,
-    isError: contactError,
-    error: contactErr,
-  } = useQuery<ContactNoteWithRelations[]>({
-    queryKey: ["contactNotes", search],
-    queryFn: () => fetchContactNotes(search),
-    enabled: activeTab === "contact",
+    data: clientNotes,
+    isLoading: clientLoading,
+    isError: clientError,
+    error: clientErr,
+  } = useQuery<NoteWithClient[]>({
+    queryKey: ["clientNotes", search],
+    queryFn: () => fetchClientNotes(search),
+    enabled: activeTab === "client",
   });
 
   // Deal notes query
@@ -115,15 +94,15 @@ export function NotesPage() {
     isLoading: dealLoading,
     isError: dealError,
     error: dealErr,
-  } = useQuery<DealNoteWithRelations[]>({
+  } = useQuery<NoteWithDeal[]>({
     queryKey: ["dealNotes", search],
     queryFn: () => fetchDealNotes(search),
     enabled: activeTab === "deal",
   });
 
-  const isLoading = activeTab === "contact" ? contactLoading : dealLoading;
-  const isError = activeTab === "contact" ? contactError : dealError;
-  const error = activeTab === "contact" ? contactErr : dealErr;
+  const isLoading = activeTab === "client" ? clientLoading : dealLoading;
+  const isError = activeTab === "client" ? clientError : dealError;
+  const error = activeTab === "client" ? clientErr : dealErr;
 
   return (
     <div
@@ -146,8 +125,8 @@ export function NotesPage() {
               color: "var(--text-secondary)",
             }}
           >
-            {activeTab === "contact"
-              ? (contactNotes?.length ?? 0)
+            {activeTab === "client"
+              ? (clientNotes?.length ?? 0)
               : (dealNotes?.length ?? 0)}
           </span>
         )}
@@ -166,16 +145,16 @@ export function NotesPage() {
         style={{ background: "var(--bg-muted)" }}
       >
         <button
-          onClick={() => setActiveTab("contact")}
+          onClick={() => setActiveTab("client")}
           className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold transition-all rounded-xl"
           style={{
             background:
-              activeTab === "contact" ? "var(--gold)" : "transparent",
-            color: activeTab === "contact" ? "#fff" : "var(--text-muted)",
+              activeTab === "client" ? "var(--gold)" : "transparent",
+            color: activeTab === "client" ? "#fff" : "var(--text-muted)",
           }}
         >
           <User size={14} />
-          Contact Notes
+          Client Notes
         </button>
         <button
           onClick={() => setActiveTab("deal")}
@@ -207,49 +186,41 @@ export function NotesPage() {
         />
       )}
 
-      {/* ── Contact Notes Tab ──────────────────────────────────── */}
-      {activeTab === "contact" &&
-        !contactLoading &&
-        !contactError &&
-        contactNotes && (
+      {/* -- Client Notes Tab -- */}
+      {activeTab === "client" &&
+        !clientLoading &&
+        !clientError &&
+        clientNotes && (
           <>
-            {contactNotes.length === 0 ? (
+            {clientNotes.length === 0 ? (
               <EmptyState
                 icon={StickyNote}
-                title={search ? "No matching notes" : "No contact notes yet"}
+                title={search ? "No matching notes" : "No client notes yet"}
                 description={
                   search
                     ? `No notes matching "${search}". Try a different search.`
-                    : "Notes will appear here when added to contacts."
+                    : "Notes will appear here when added to clients."
                 }
               />
             ) : (
               <div className="flex flex-col gap-3 px-4">
-                {contactNotes.map((note) => {
-                  const contactName = note.contacts
-                    ? `${note.contacts.first_name} ${note.contacts.last_name}`
-                    : "Unknown Contact";
-                  const authorName = note.sales
-                    ? `${note.sales.first_name} ${note.sales.last_name}`
-                    : "Unknown";
-                  const statusColor = note.status
-                    ? getStatusColor(note.status)
-                    : undefined;
+                {clientNotes.map((note) => {
+                  const clientName = note.clients?.name ?? "Unknown Client";
 
                   return (
                     <MobileCard key={note.id}>
-                      {/* Top row: status badge + date */}
+                      {/* Top row: status + date */}
                       <div className="flex items-center justify-between mb-2">
                         {note.status ? (
-                          <Badge variant={getStatusVariant(note.status)}>
-                            {statusColor && (
-                              <span
-                                className="inline-block w-1.5 h-1.5 rounded-full"
-                                style={{ backgroundColor: statusColor }}
-                              />
-                            )}
+                          <span
+                            className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full"
+                            style={{
+                              background: "var(--bg-muted)",
+                              color: "var(--text-secondary)",
+                            }}
+                          >
                             {note.status}
-                          </Badge>
+                          </span>
                         ) : (
                           <span />
                         )}
@@ -257,7 +228,7 @@ export function NotesPage() {
                           className="text-[11px]"
                           style={{ color: "var(--text-muted)" }}
                         >
-                          {formatRelativeDate(note.date)}
+                          {formatRelativeDate(note.created_at)}
                         </span>
                       </div>
 
@@ -275,27 +246,21 @@ export function NotesPage() {
                         {note.text}
                       </p>
 
-                      {/* Footer: contact link + author */}
+                      {/* Footer: client link */}
                       <div className="flex items-center justify-between">
                         <button
                           onClick={() =>
-                            navigate(`/contacts/${note.contact_id}`)
+                            navigate(`/clients/${note.client_id}`)
                           }
                           className="flex items-center gap-1.5 text-xs font-medium transition-colors active:opacity-70"
                           style={{ color: "var(--gold)" }}
                         >
                           <User size={13} />
                           <span className="truncate max-w-[140px]">
-                            {contactName}
+                            {clientName}
                           </span>
                           <ChevronRight size={13} />
                         </button>
-                        <span
-                          className="text-[11px] truncate max-w-[120px]"
-                          style={{ color: "var(--text-muted)" }}
-                        >
-                          {authorName}
-                        </span>
                       </div>
                     </MobileCard>
                   );
@@ -305,7 +270,7 @@ export function NotesPage() {
           </>
         )}
 
-      {/* ── Deal Notes Tab ─────────────────────────────────────── */}
+      {/* -- Deal Notes Tab -- */}
       {activeTab === "deal" &&
         !dealLoading &&
         !dealError &&
@@ -325,9 +290,6 @@ export function NotesPage() {
               <div className="flex flex-col gap-3 px-4">
                 {dealNotes.map((note) => {
                   const dealName = note.deals?.name ?? "Unknown Deal";
-                  const authorName = note.sales
-                    ? `${note.sales.first_name} ${note.sales.last_name}`
-                    : "Unknown";
 
                   return (
                     <MobileCard key={note.id}>
@@ -341,7 +303,7 @@ export function NotesPage() {
                           className="text-[11px]"
                           style={{ color: "var(--text-muted)" }}
                         >
-                          {formatRelativeDate(note.date)}
+                          {formatRelativeDate(note.created_at)}
                         </span>
                       </div>
 
@@ -359,7 +321,7 @@ export function NotesPage() {
                         {note.text}
                       </p>
 
-                      {/* Footer: deal link + author */}
+                      {/* Footer: deal link */}
                       <div className="flex items-center justify-between">
                         <button
                           onClick={() =>
@@ -374,12 +336,6 @@ export function NotesPage() {
                           </span>
                           <ChevronRight size={13} />
                         </button>
-                        <span
-                          className="text-[11px] truncate max-w-[120px]"
-                          style={{ color: "var(--text-muted)" }}
-                        >
-                          {authorName}
-                        </span>
                       </div>
                     </MobileCard>
                   );

@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../providers/AuthProvider";
-import { formatDate, formatRelativeDate } from "../lib/utils";
+import { formatDate } from "../lib/utils";
 import { PageHeader } from "../components/ui/PageHeader";
 import { MobileCard } from "../components/ui/MobileCard";
 import { SectionTitle } from "../components/ui/MobileCard";
@@ -24,36 +24,45 @@ import type { Task } from "../types";
 
 // ----- Types -----
 
-type FilterTab = "all" | "pending" | "completed" | "overdue";
+type FilterTab = "all" | "pending" | "in_progress" | "completed" | "overdue";
 
-interface TaskWithContact extends Task {
-  contacts?: {
-    first_name: string;
-    last_name: string;
+interface TaskWithClient extends Task {
+  clients?: {
+    name: string;
+    full_name: string | null;
   } | null;
 }
 
 interface NewTaskForm {
-  type: string;
-  text: string;
+  title: string;
+  description: string;
+  priority: string;
   due_date: string;
-  contact_id: string;
+  client_id: string;
+  deal_id: string;
 }
 
-const TASK_TYPES = ["Email", "Phone", "Demo", "Meeting", "Follow-up"] as const;
+const PRIORITIES = ["low", "medium", "high", "critical"] as const;
 
-const typeVariantMap: Record<string, "gold" | "info" | "success" | "warning" | "danger" | "default"> = {
-  Email: "info",
-  Phone: "gold",
-  Demo: "success",
-  Meeting: "warning",
-  "Follow-up": "danger",
+const priorityVariantMap: Record<string, "default" | "info" | "warning" | "danger"> = {
+  low: "default",
+  medium: "info",
+  high: "warning",
+  critical: "danger",
+};
+
+const priorityLabelMap: Record<string, string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  critical: "Critical",
 };
 
 // ----- Helpers -----
 
-function isOverdue(task: TaskWithContact): boolean {
-  if (task.done_date) return false;
+function isOverdue(task: TaskWithClient): boolean {
+  if (task.status === "completed") return false;
+  if (!task.due_date) return false;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   return new Date(task.due_date) < today;
@@ -69,14 +78,16 @@ function isToday(dateStr: string): boolean {
   );
 }
 
-function getDueDateColor(task: TaskWithContact): string {
-  if (task.done_date) return "var(--text-muted)";
+function getDueDateColor(task: TaskWithClient): string {
+  if (task.status === "completed") return "var(--text-muted)";
+  if (!task.due_date) return "var(--text-muted)";
   if (isOverdue(task)) return "var(--danger)";
   if (isToday(task.due_date)) return "var(--gold)";
   return "var(--text-muted)";
 }
 
-function getDueDateLabel(task: TaskWithContact): string {
+function getDueDateLabel(task: TaskWithClient): string {
+  if (!task.due_date) return "No due date";
   if (isToday(task.due_date)) return "Today";
   const d = new Date(task.due_date);
   const now = new Date();
@@ -92,20 +103,30 @@ function getDueDateLabel(task: TaskWithContact): string {
 
 // ----- Data fetching -----
 
-async function fetchTasks(): Promise<TaskWithContact[]> {
+async function fetchTasks(): Promise<TaskWithClient[]> {
   const { data, error } = await supabase
     .from("tasks")
-    .select("*, contacts(first_name, last_name)")
+    .select("*, clients(name, full_name)")
     .order("due_date");
   if (error) throw error;
   return data ?? [];
 }
 
-async function fetchContacts(): Promise<{ id: number; first_name: string; last_name: string }[]> {
+async function fetchClients(): Promise<{ id: string; name: string; full_name: string | null }[]> {
   const { data, error } = await supabase
-    .from("contacts")
-    .select("id, first_name, last_name")
-    .order("last_name");
+    .from("clients")
+    .select("id, name, full_name")
+    .order("name");
+  if (error) throw error;
+  return data ?? [];
+}
+
+async function fetchDeals(): Promise<{ id: string; name: string }[]> {
+  const { data, error } = await supabase
+    .from("deals")
+    .select("id, name")
+    .eq("is_active", true)
+    .order("name");
   if (error) throw error;
   return data ?? [];
 }
@@ -114,16 +135,18 @@ async function fetchContacts(): Promise<{ id: number; first_name: string; last_n
 
 export function TasksPage() {
   const navigate = useNavigate();
-  const { sale } = useAuth();
+  const { sale, user } = useAuth();
   const queryClient = useQueryClient();
 
   const [activeTab, setActiveTab] = useState<FilterTab>("all");
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<NewTaskForm>({
-    type: "Email",
-    text: "",
+    title: "",
+    description: "",
+    priority: "medium",
     due_date: new Date().toISOString().split("T")[0],
-    contact_id: "",
+    client_id: "",
+    deal_id: "",
   });
 
   // Fetch tasks
@@ -132,25 +155,35 @@ export function TasksPage() {
     isLoading,
     isError,
     error,
-  } = useQuery<TaskWithContact[]>({
+  } = useQuery<TaskWithClient[]>({
     queryKey: ["tasks"],
     queryFn: fetchTasks,
   });
 
-  // Fetch contacts for the form dropdown
-  const { data: contactsList } = useQuery({
-    queryKey: ["contacts-list"],
-    queryFn: fetchContacts,
+  // Fetch clients for the form dropdown
+  const { data: clientsList } = useQuery({
+    queryKey: ["clients-list"],
+    queryFn: fetchClients,
+    enabled: showForm,
+  });
+
+  // Fetch deals for the form dropdown
+  const { data: dealsList } = useQuery({
+    queryKey: ["deals-list"],
+    queryFn: fetchDeals,
     enabled: showForm,
   });
 
   // Toggle done mutation
   const toggleDone = useMutation({
-    mutationFn: async (task: TaskWithContact) => {
-      const newDoneDate = task.done_date ? null : new Date().toISOString();
+    mutationFn: async (task: TaskWithClient) => {
+      const isDone = task.status === "completed";
+      const updates = isDone
+        ? { status: "pending", completion_date: null }
+        : { status: "completed", completion_date: new Date().toISOString() };
       const { error } = await supabase
         .from("tasks")
-        .update({ done_date: newDoneDate })
+        .update(updates)
         .eq("id", task.id);
       if (error) throw error;
     },
@@ -162,41 +195,56 @@ export function TasksPage() {
   // Create task mutation
   const createTask = useMutation({
     mutationFn: async (data: NewTaskForm) => {
+      const userId = user?.id ?? sale?.id;
       const { error } = await supabase.from("tasks").insert({
-        type: data.type,
-        text: data.text,
-        due_date: data.due_date,
-        contact_id: parseInt(data.contact_id, 10),
-        sales_id: sale?.id,
+        title: data.title,
+        description: data.description || null,
+        priority: data.priority,
+        status: "pending",
+        due_date: data.due_date || null,
+        client_id: data.client_id || null,
+        deal_id: data.deal_id || null,
+        assigned_to: userId,
+        created_by: userId,
       });
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
       setShowForm(false);
-      setForm({ type: "Email", text: "", due_date: new Date().toISOString().split("T")[0], contact_id: "" });
+      setForm({
+        title: "",
+        description: "",
+        priority: "medium",
+        due_date: new Date().toISOString().split("T")[0],
+        client_id: "",
+        deal_id: "",
+      });
     },
   });
 
   // Categorize tasks
   const categorized = useMemo(() => {
-    if (!tasks) return { pending: [], overdue: [], completed: [] };
+    if (!tasks) return { pending: [], in_progress: [], overdue: [], completed: [] };
 
-    const pending: TaskWithContact[] = [];
-    const overdue: TaskWithContact[] = [];
-    const completed: TaskWithContact[] = [];
+    const pending: TaskWithClient[] = [];
+    const in_progress: TaskWithClient[] = [];
+    const overdue: TaskWithClient[] = [];
+    const completed: TaskWithClient[] = [];
 
     for (const task of tasks) {
-      if (task.done_date) {
+      if (task.status === "completed") {
         completed.push(task);
       } else if (isOverdue(task)) {
         overdue.push(task);
+      } else if (task.status === "in_progress") {
+        in_progress.push(task);
       } else {
         pending.push(task);
       }
     }
 
-    return { pending, overdue, completed };
+    return { pending, in_progress, overdue, completed };
   }, [tasks]);
 
   // Filter based on active tab
@@ -204,12 +252,19 @@ export function TasksPage() {
     switch (activeTab) {
       case "pending":
         return categorized.pending;
+      case "in_progress":
+        return categorized.in_progress;
       case "overdue":
         return categorized.overdue;
       case "completed":
         return categorized.completed;
       default:
-        return [...categorized.overdue, ...categorized.pending, ...categorized.completed];
+        return [
+          ...categorized.overdue,
+          ...categorized.in_progress,
+          ...categorized.pending,
+          ...categorized.completed,
+        ];
     }
   }, [activeTab, categorized]);
 
@@ -217,6 +272,7 @@ export function TasksPage() {
     () => ({
       all: tasks?.length ?? 0,
       pending: categorized.pending.length,
+      in_progress: categorized.in_progress.length,
       overdue: categorized.overdue.length,
       completed: categorized.completed.length,
     }),
@@ -226,21 +282,24 @@ export function TasksPage() {
   const tabs: { key: FilterTab; label: string }[] = [
     { key: "all", label: "All" },
     { key: "pending", label: "Pending" },
+    { key: "in_progress", label: "In Progress" },
     { key: "completed", label: "Completed" },
     { key: "overdue", label: "Overdue" },
   ];
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.text.trim() || !form.contact_id) return;
+    if (!form.title.trim()) return;
     createTask.mutate(form);
   }
 
   // ----- Render helpers -----
 
-  function renderTaskRow(task: TaskWithContact) {
-    const isDone = !!task.done_date;
+  function renderTaskRow(task: TaskWithClient) {
+    const isDone = task.status === "completed";
     const overdue = isOverdue(task);
+    const clientName = task.clients?.name || task.clients?.full_name || null;
+    const priority = task.priority || "medium";
 
     return (
       <div
@@ -269,46 +328,66 @@ export function TasksPage() {
         {/* Content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <Badge variant={typeVariantMap[task.type] ?? "default"}>
-              {task.type}
+            <Badge variant={priorityVariantMap[priority] ?? "default"}>
+              {priorityLabelMap[priority] ?? priority}
             </Badge>
+            {task.status === "in_progress" && (
+              <Badge variant="gold">In Progress</Badge>
+            )}
             {overdue && !isDone && (
               <Badge variant="danger">Overdue</Badge>
             )}
           </div>
 
           <p
-            className="text-sm mt-1"
+            className="text-sm font-medium mt-1"
             style={{
               color: "var(--text-primary)",
               textDecoration: isDone ? "line-through" : "none",
             }}
           >
-            {task.text}
+            {task.title}
           </p>
 
-          {/* Due date */}
-          <div className="flex items-center gap-1 mt-1">
-            <Clock size={12} style={{ color: getDueDateColor(task) }} />
-            <span
-              className="text-[11px] font-medium"
-              style={{ color: getDueDateColor(task) }}
+          {task.description && (
+            <p
+              className="text-xs mt-0.5"
+              style={{
+                color: "var(--text-secondary)",
+                display: "-webkit-box",
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: "vertical",
+                overflow: "hidden",
+              }}
             >
-              {getDueDateLabel(task)}
-            </span>
-          </div>
+              {task.description}
+            </p>
+          )}
 
-          {/* Contact link */}
-          {task.contacts && (
+          {/* Due date */}
+          {task.due_date && (
+            <div className="flex items-center gap-1 mt-1">
+              <Clock size={12} style={{ color: getDueDateColor(task) }} />
+              <span
+                className="text-[11px] font-medium"
+                style={{ color: getDueDateColor(task) }}
+              >
+                {getDueDateLabel(task)}
+              </span>
+            </div>
+          )}
+
+          {/* Client link */}
+          {clientName && (
             <button
-              onClick={() => navigate(`/contacts/${task.contact_id}`)}
+              onClick={() => navigate(`/clients/${task.client_id}`)}
               className="flex items-center gap-1 mt-1.5 active:opacity-70 transition-opacity"
             >
               <span
                 className="text-xs font-medium"
                 style={{ color: "var(--gold)" }}
               >
-                {task.contacts.first_name} {task.contacts.last_name}
+                {clientName}
               </span>
               <ChevronRight size={12} style={{ color: "var(--gold)" }} />
             </button>
@@ -392,30 +471,12 @@ export function TasksPage() {
               New Task
             </p>
 
-            {/* Type select */}
-            <select
-              value={form.type}
-              onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
-              className="w-full rounded-lg px-3 py-2 text-sm"
-              style={{
-                background: "var(--bg-primary)",
-                color: "var(--text-primary)",
-                border: "1px solid var(--border-light)",
-              }}
-            >
-              {TASK_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-
-            {/* Text input */}
+            {/* Title input */}
             <input
               type="text"
-              placeholder="Task description..."
-              value={form.text}
-              onChange={(e) => setForm((f) => ({ ...f, text: e.target.value }))}
+              placeholder="Task title..."
+              value={form.title}
+              onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
               className="w-full rounded-lg px-3 py-2 text-sm"
               style={{
                 background: "var(--bg-primary)",
@@ -423,6 +484,42 @@ export function TasksPage() {
                 border: "1px solid var(--border-light)",
               }}
             />
+
+            {/* Description input */}
+            <textarea
+              placeholder="Description (optional)..."
+              value={form.description}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, description: e.target.value }))
+              }
+              rows={2}
+              className="w-full rounded-lg px-3 py-2 text-sm resize-none"
+              style={{
+                background: "var(--bg-primary)",
+                color: "var(--text-primary)",
+                border: "1px solid var(--border-light)",
+              }}
+            />
+
+            {/* Priority select */}
+            <select
+              value={form.priority}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, priority: e.target.value }))
+              }
+              className="w-full rounded-lg px-3 py-2 text-sm"
+              style={{
+                background: "var(--bg-primary)",
+                color: "var(--text-primary)",
+                border: "1px solid var(--border-light)",
+              }}
+            >
+              {PRIORITIES.map((p) => (
+                <option key={p} value={p}>
+                  {priorityLabelMap[p]}
+                </option>
+              ))}
+            </select>
 
             {/* Due date */}
             <input
@@ -439,11 +536,11 @@ export function TasksPage() {
               }}
             />
 
-            {/* Contact select */}
+            {/* Client select */}
             <select
-              value={form.contact_id}
+              value={form.client_id}
               onChange={(e) =>
-                setForm((f) => ({ ...f, contact_id: e.target.value }))
+                setForm((f) => ({ ...f, client_id: e.target.value }))
               }
               className="w-full rounded-lg px-3 py-2 text-sm"
               style={{
@@ -452,10 +549,31 @@ export function TasksPage() {
                 border: "1px solid var(--border-light)",
               }}
             >
-              <option value="">Select contact...</option>
-              {contactsList?.map((c) => (
+              <option value="">Select client (optional)...</option>
+              {clientsList?.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.first_name} {c.last_name}
+                  {c.full_name || c.name}
+                </option>
+              ))}
+            </select>
+
+            {/* Deal select */}
+            <select
+              value={form.deal_id}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, deal_id: e.target.value }))
+              }
+              className="w-full rounded-lg px-3 py-2 text-sm"
+              style={{
+                background: "var(--bg-primary)",
+                color: "var(--text-primary)",
+                border: "1px solid var(--border-light)",
+              }}
+            >
+              <option value="">Select deal (optional)...</option>
+              {dealsList?.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
                 </option>
               ))}
             </select>
@@ -463,7 +581,7 @@ export function TasksPage() {
             {/* Submit */}
             <button
               type="submit"
-              disabled={!form.text.trim() || !form.contact_id || createTask.isPending}
+              disabled={!form.title.trim() || createTask.isPending}
               className="w-full rounded-xl py-2.5 text-sm font-semibold transition-transform active:scale-[0.98] disabled:opacity-40"
               style={{ background: "var(--gold)", color: "#fff" }}
             >
@@ -504,12 +622,12 @@ export function TasksPage() {
           title={
             activeTab === "all"
               ? "No tasks yet"
-              : `No ${activeTab} tasks`
+              : `No ${activeTab.replace("_", " ")} tasks`
           }
           description={
             activeTab === "all"
               ? "Create your first task to stay organized."
-              : `You don't have any ${activeTab} tasks right now.`
+              : `You don't have any ${activeTab.replace("_", " ")} tasks right now.`
           }
           action={
             activeTab === "all" && !showForm ? (
@@ -526,7 +644,7 @@ export function TasksPage() {
         />
       )}
 
-      {/* Task list — grouped when on "all" tab */}
+      {/* Task list -- grouped when on "all" tab */}
       {!isLoading && !isError && filteredTasks.length > 0 && (
         <div className="flex flex-col">
           {activeTab === "all" ? (
@@ -537,6 +655,14 @@ export function TasksPage() {
                     Overdue
                   </SectionTitle>
                   {categorized.overdue.map(renderTaskRow)}
+                </div>
+              )}
+              {categorized.in_progress.length > 0 && (
+                <div>
+                  <SectionTitle count={categorized.in_progress.length}>
+                    In Progress
+                  </SectionTitle>
+                  {categorized.in_progress.map(renderTaskRow)}
                 </div>
               )}
               {categorized.pending.length > 0 && (

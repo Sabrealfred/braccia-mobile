@@ -1,11 +1,10 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../providers/AuthProvider";
 import { PageHeader } from "../components/ui/PageHeader";
 import { MobileCard } from "../components/ui/MobileCard";
-import type { Company, EmailAndType, PhoneNumberAndType } from "../types";
 
 const inputStyle = {
   background: "var(--bg-input)",
@@ -21,93 +20,111 @@ const labelClassName =
 
 const labelStyle = { color: "var(--text-muted)" };
 
-type ContactType = "Work" | "Home" | "Other";
+const INDUSTRIES = [
+  "Technology",
+  "Finance",
+  "Healthcare",
+  "Energy",
+  "Real Estate",
+  "Manufacturing",
+  "Legal",
+  "Consulting",
+  "Other",
+];
+
+const NET_WORTH_RANGES = [
+  "$0-$1M",
+  "$1M-$5M",
+  "$5M-$10M",
+  "$10M-$50M",
+  "$50M+",
+];
+
+const RISK_PROFILES = [
+  { value: "conservative", label: "Conservative" },
+  { value: "moderate", label: "Moderate" },
+  { value: "aggressive", label: "Aggressive" },
+  { value: "very_aggressive", label: "Very Aggressive" },
+];
 
 interface FormState {
-  first_name: string;
-  last_name: string;
-  title: string;
-  company_id: string;
-  email: string;
-  email_type: ContactType;
-  phone: string;
-  phone_type: ContactType;
-  gender: string;
+  name: string;
+  primary_email: string;
+  primary_phone: string;
+  client_type: string;
   status: string;
-  background: string;
-  has_newsletter: boolean;
+  company: string;
+  industry: string;
+  website: string;
+  address_line1: string;
+  city: string;
+  state: string;
+  postal_code: string;
+  country: string;
+  net_worth_range: string;
+  risk_profile: string;
+  source: string;
+  notes: string;
 }
 
 const initialForm: FormState = {
-  first_name: "",
-  last_name: "",
-  title: "",
-  company_id: "",
-  email: "",
-  email_type: "Work",
-  phone: "",
-  phone_type: "Work",
-  gender: "",
-  status: "cold",
-  background: "",
-  has_newsletter: false,
+  name: "",
+  primary_email: "",
+  primary_phone: "",
+  client_type: "individual",
+  status: "prospect",
+  company: "",
+  industry: "",
+  website: "",
+  address_line1: "",
+  city: "",
+  state: "",
+  postal_code: "",
+  country: "",
+  net_worth_range: "",
+  risk_profile: "",
+  source: "",
+  notes: "",
 };
 
 export function ContactCreatePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { sale } = useAuth();
+  const { sale, user } = useAuth();
 
   const [form, setForm] = useState<FormState>(initialForm);
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
 
-  // Fetch companies for the dropdown
-  const { data: companies = [] } = useQuery<Pick<Company, "id" | "name">[]>({
-    queryKey: ["companies-select"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("companies")
-        .select("id, name")
-        .order("name");
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
-
   // Insert mutation
   const mutation = useMutation({
     mutationFn: async (formData: FormState) => {
-      if (!sale) throw new Error("Not authenticated");
-
-      const email_jsonb: EmailAndType[] = formData.email.trim()
-        ? [{ email: formData.email.trim(), type: formData.email_type }]
-        : [];
-
-      const phone_jsonb: PhoneNumberAndType[] = formData.phone.trim()
-        ? [{ number: formData.phone.trim(), type: formData.phone_type }]
-        : [];
-
-      const now = new Date().toISOString();
+      const userId = sale?.id ?? user?.id;
+      if (!userId) throw new Error("Not authenticated");
 
       const insertPayload = {
-        first_name: formData.first_name.trim(),
-        last_name: formData.last_name.trim(),
-        title: formData.title.trim() || null,
-        company_id: formData.company_id ? Number(formData.company_id) : null,
-        email_jsonb: email_jsonb.length > 0 ? email_jsonb : null,
-        phone_jsonb: phone_jsonb.length > 0 ? phone_jsonb : null,
-        gender: formData.gender || null,
+        name: formData.name.trim(),
+        full_name: formData.name.trim(),
+        primary_email: formData.primary_email.trim() || null,
+        primary_phone: formData.primary_phone.trim() || null,
+        client_type: formData.client_type,
         status: formData.status,
-        background: formData.background.trim() || null,
-        has_newsletter: formData.has_newsletter,
-        sales_id: sale.id,
-        first_seen: now,
-        last_seen: now,
+        company: formData.company.trim() || null,
+        industry: formData.industry || null,
+        website: formData.website.trim() || null,
+        address_line1: formData.address_line1.trim() || null,
+        city: formData.city.trim() || null,
+        state: formData.state.trim() || null,
+        postal_code: formData.postal_code.trim() || null,
+        country: formData.country.trim() || null,
+        net_worth_range: formData.net_worth_range || null,
+        risk_profile: formData.risk_profile || null,
+        source: formData.source.trim() || null,
+        notes: formData.notes.trim() || null,
         tags: [],
       };
 
       const { data, error } = await supabase
-        .from("contacts")
+        .from("clients")
         .insert(insertPayload)
         .select()
         .single();
@@ -116,7 +133,7 @@ export function ContactCreatePage() {
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["contacts"] });
+      queryClient.invalidateQueries({ queryKey: ["clients"] });
       navigate("/contacts");
     },
   });
@@ -135,14 +152,14 @@ export function ContactCreatePage() {
   function validate(): boolean {
     const newErrors: Partial<Record<keyof FormState, string>> = {};
 
-    if (!form.first_name.trim()) {
-      newErrors.first_name = "First name is required";
+    if (!form.name.trim()) {
+      newErrors.name = "Name is required";
     }
-    if (!form.last_name.trim()) {
-      newErrors.last_name = "Last name is required";
-    }
-    if (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
-      newErrors.email = "Enter a valid email address";
+    if (
+      form.primary_email.trim() &&
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.primary_email.trim())
+    ) {
+      newErrors.primary_email = "Enter a valid email address";
     }
 
     setErrors(newErrors);
@@ -182,121 +199,48 @@ export function ContactCreatePage() {
           </div>
         )}
 
-        {/* Name section */}
+        {/* Name & Type */}
         <MobileCard className="flex flex-col gap-4">
-          <div className="flex flex-col gap-4 sm:flex-row sm:gap-3">
-            <div className="flex-1">
-              <label htmlFor="first_name" className={labelClassName} style={labelStyle}>
-                First Name <span style={{ color: "var(--danger)" }}>*</span>
-              </label>
-              <input
-                id="first_name"
-                type="text"
-                autoComplete="given-name"
-                autoCapitalize="words"
-                placeholder="First name"
-                value={form.first_name}
-                onChange={(e) => updateField("first_name", e.target.value)}
-                className={inputClassName}
-                style={{
-                  ...inputStyle,
-                  ...(errors.first_name
-                    ? { borderColor: "var(--danger)" }
-                    : {}),
-                  minHeight: 48,
-                }}
-              />
-              {errors.first_name && (
-                <p className="text-xs mt-1" style={{ color: "var(--danger)" }}>
-                  {errors.first_name}
-                </p>
-              )}
-            </div>
-
-            <div className="flex-1">
-              <label htmlFor="last_name" className={labelClassName} style={labelStyle}>
-                Last Name <span style={{ color: "var(--danger)" }}>*</span>
-              </label>
-              <input
-                id="last_name"
-                type="text"
-                autoComplete="family-name"
-                autoCapitalize="words"
-                placeholder="Last name"
-                value={form.last_name}
-                onChange={(e) => updateField("last_name", e.target.value)}
-                className={inputClassName}
-                style={{
-                  ...inputStyle,
-                  ...(errors.last_name
-                    ? { borderColor: "var(--danger)" }
-                    : {}),
-                  minHeight: 48,
-                }}
-              />
-              {errors.last_name && (
-                <p className="text-xs mt-1" style={{ color: "var(--danger)" }}>
-                  {errors.last_name}
-                </p>
-              )}
-            </div>
-          </div>
-
           <div>
-            <label htmlFor="contact_title" className={labelClassName} style={labelStyle}>
-              Title
+            <label htmlFor="name" className={labelClassName} style={labelStyle}>
+              Name <span style={{ color: "var(--danger)" }}>*</span>
             </label>
             <input
-              id="contact_title"
+              id="name"
               type="text"
+              autoComplete="name"
               autoCapitalize="words"
-              placeholder="e.g. VP of Sales"
-              value={form.title}
-              onChange={(e) => updateField("title", e.target.value)}
+              placeholder="Full name"
+              value={form.name}
+              onChange={(e) => updateField("name", e.target.value)}
               className={inputClassName}
-              style={{ ...inputStyle, minHeight: 48 }}
+              style={{
+                ...inputStyle,
+                ...(errors.name ? { borderColor: "var(--danger)" } : {}),
+                minHeight: 48,
+              }}
             />
-          </div>
-        </MobileCard>
-
-        {/* Company & Status */}
-        <MobileCard className="flex flex-col gap-4">
-          <div>
-            <label htmlFor="company_id" className={labelClassName} style={labelStyle}>
-              Company
-            </label>
-            <select
-              id="company_id"
-              value={form.company_id}
-              onChange={(e) => updateField("company_id", e.target.value)}
-              className={inputClassName}
-              style={{ ...inputStyle, minHeight: 48, appearance: "none" as const }}
-            >
-              <option value="">-- No company --</option>
-              {companies.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+            {errors.name && (
+              <p className="text-xs mt-1" style={{ color: "var(--danger)" }}>
+                {errors.name}
+              </p>
+            )}
           </div>
 
           <div className="flex gap-3">
             <div className="flex-1">
-              <label htmlFor="gender" className={labelClassName} style={labelStyle}>
-                Gender
+              <label htmlFor="client_type" className={labelClassName} style={labelStyle}>
+                Type
               </label>
               <select
-                id="gender"
-                value={form.gender}
-                onChange={(e) => updateField("gender", e.target.value)}
+                id="client_type"
+                value={form.client_type}
+                onChange={(e) => updateField("client_type", e.target.value)}
                 className={inputClassName}
                 style={{ ...inputStyle, minHeight: 48, appearance: "none" as const }}
               >
-                <option value="">-- Select --</option>
-                <option value="Male">Male</option>
-                <option value="Female">Female</option>
-                <option value="Non-binary">Non-binary</option>
+                <option value="individual">Individual</option>
+                <option value="entity">Entity</option>
               </select>
             </div>
 
@@ -311,139 +255,277 @@ export function ContactCreatePage() {
                 className={inputClassName}
                 style={{ ...inputStyle, minHeight: 48, appearance: "none" as const }}
               >
-                <option value="cold">Cold</option>
-                <option value="warm">Warm</option>
-                <option value="hot">Hot</option>
+                <option value="prospect">Prospect</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+                <option value="archived">Archived</option>
               </select>
             </div>
+          </div>
+        </MobileCard>
+
+        {/* Company & Industry */}
+        <MobileCard className="flex flex-col gap-4">
+          <div>
+            <label htmlFor="company" className={labelClassName} style={labelStyle}>
+              Company
+            </label>
+            <input
+              id="company"
+              type="text"
+              autoCapitalize="words"
+              placeholder="Company name"
+              value={form.company}
+              onChange={(e) => updateField("company", e.target.value)}
+              className={inputClassName}
+              style={{ ...inputStyle, minHeight: 48 }}
+            />
+          </div>
+
+          <div>
+            <label htmlFor="industry" className={labelClassName} style={labelStyle}>
+              Industry
+            </label>
+            <select
+              id="industry"
+              value={form.industry}
+              onChange={(e) => updateField("industry", e.target.value)}
+              className={inputClassName}
+              style={{ ...inputStyle, minHeight: 48, appearance: "none" as const }}
+            >
+              <option value="">-- Select --</option>
+              {INDUSTRIES.map((ind) => (
+                <option key={ind} value={ind}>
+                  {ind}
+                </option>
+              ))}
+            </select>
           </div>
         </MobileCard>
 
         {/* Contact info */}
         <MobileCard className="flex flex-col gap-4">
           <div>
-            <label htmlFor="email" className={labelClassName} style={labelStyle}>
+            <label htmlFor="primary_email" className={labelClassName} style={labelStyle}>
               Email
             </label>
-            <div className="flex gap-2">
-              <input
-                id="email"
-                type="email"
-                inputMode="email"
-                autoComplete="email"
-                autoCapitalize="off"
-                autoCorrect="off"
-                spellCheck={false}
-                placeholder="email@example.com"
-                value={form.email}
-                onChange={(e) => updateField("email", e.target.value)}
-                className={inputClassName + " flex-1"}
-                style={{
-                  ...inputStyle,
-                  ...(errors.email ? { borderColor: "var(--danger)" } : {}),
-                  minHeight: 48,
-                }}
-              />
-              <select
-                aria-label="Email type"
-                value={form.email_type}
-                onChange={(e) => updateField("email_type", e.target.value as ContactType)}
-                className="px-2 py-3 rounded-xl border text-xs outline-none focus:border-[var(--gold)] transition-colors shrink-0"
-                style={{ ...inputStyle, minHeight: 48, width: 80, appearance: "none" as const }}
-              >
-                <option value="Work">Work</option>
-                <option value="Home">Home</option>
-                <option value="Other">Other</option>
-              </select>
-            </div>
-            {errors.email && (
+            <input
+              id="primary_email"
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              placeholder="email@example.com"
+              value={form.primary_email}
+              onChange={(e) => updateField("primary_email", e.target.value)}
+              className={inputClassName}
+              style={{
+                ...inputStyle,
+                ...(errors.primary_email ? { borderColor: "var(--danger)" } : {}),
+                minHeight: 48,
+              }}
+            />
+            {errors.primary_email && (
               <p className="text-xs mt-1" style={{ color: "var(--danger)" }}>
-                {errors.email}
+                {errors.primary_email}
               </p>
             )}
           </div>
 
           <div>
-            <label htmlFor="phone" className={labelClassName} style={labelStyle}>
+            <label htmlFor="primary_phone" className={labelClassName} style={labelStyle}>
               Phone
             </label>
-            <div className="flex gap-2">
+            <input
+              id="primary_phone"
+              type="tel"
+              inputMode="tel"
+              autoComplete="tel"
+              placeholder="+1 (555) 000-0000"
+              value={form.primary_phone}
+              onChange={(e) => updateField("primary_phone", e.target.value)}
+              className={inputClassName}
+              style={{ ...inputStyle, minHeight: 48 }}
+            />
+          </div>
+
+          <div>
+            <label htmlFor="website" className={labelClassName} style={labelStyle}>
+              Website
+            </label>
+            <input
+              id="website"
+              type="url"
+              placeholder="https://example.com"
+              value={form.website}
+              onChange={(e) => updateField("website", e.target.value)}
+              className={inputClassName}
+              style={{ ...inputStyle, minHeight: 48 }}
+            />
+          </div>
+        </MobileCard>
+
+        {/* Address */}
+        <MobileCard className="flex flex-col gap-4">
+          <div>
+            <label htmlFor="address_line1" className={labelClassName} style={labelStyle}>
+              Address
+            </label>
+            <input
+              id="address_line1"
+              type="text"
+              autoComplete="street-address"
+              placeholder="Street address"
+              value={form.address_line1}
+              onChange={(e) => updateField("address_line1", e.target.value)}
+              className={inputClassName}
+              style={{ ...inputStyle, minHeight: 48 }}
+            />
+          </div>
+
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label htmlFor="city" className={labelClassName} style={labelStyle}>
+                City
+              </label>
               <input
-                id="phone"
-                type="tel"
-                inputMode="tel"
-                autoComplete="tel"
-                placeholder="+1 (555) 000-0000"
-                value={form.phone}
-                onChange={(e) => updateField("phone", e.target.value)}
-                className={inputClassName + " flex-1"}
+                id="city"
+                type="text"
+                autoComplete="address-level2"
+                placeholder="City"
+                value={form.city}
+                onChange={(e) => updateField("city", e.target.value)}
+                className={inputClassName}
                 style={{ ...inputStyle, minHeight: 48 }}
               />
-              <select
-                aria-label="Phone type"
-                value={form.phone_type}
-                onChange={(e) => updateField("phone_type", e.target.value as ContactType)}
-                className="px-2 py-3 rounded-xl border text-xs outline-none focus:border-[var(--gold)] transition-colors shrink-0"
-                style={{ ...inputStyle, minHeight: 48, width: 80, appearance: "none" as const }}
-              >
-                <option value="Work">Work</option>
-                <option value="Home">Home</option>
-                <option value="Other">Other</option>
-              </select>
+            </div>
+            <div className="flex-1">
+              <label htmlFor="state" className={labelClassName} style={labelStyle}>
+                State
+              </label>
+              <input
+                id="state"
+                type="text"
+                autoComplete="address-level1"
+                placeholder="NY"
+                value={form.state}
+                onChange={(e) => updateField("state", e.target.value)}
+                className={inputClassName}
+                style={{ ...inputStyle, minHeight: 48 }}
+              />
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label htmlFor="postal_code" className={labelClassName} style={labelStyle}>
+                Postal Code
+              </label>
+              <input
+                id="postal_code"
+                type="text"
+                autoComplete="postal-code"
+                placeholder="10001"
+                value={form.postal_code}
+                onChange={(e) => updateField("postal_code", e.target.value)}
+                className={inputClassName}
+                style={{ ...inputStyle, minHeight: 48 }}
+              />
+            </div>
+            <div className="flex-1">
+              <label htmlFor="country" className={labelClassName} style={labelStyle}>
+                Country
+              </label>
+              <input
+                id="country"
+                type="text"
+                autoComplete="country-name"
+                placeholder="US"
+                value={form.country}
+                onChange={(e) => updateField("country", e.target.value)}
+                className={inputClassName}
+                style={{ ...inputStyle, minHeight: 48 }}
+              />
             </div>
           </div>
         </MobileCard>
 
-        {/* Background & Newsletter */}
+        {/* Financial Profile */}
         <MobileCard className="flex flex-col gap-4">
           <div>
-            <label htmlFor="background" className={labelClassName} style={labelStyle}>
-              Background
+            <label htmlFor="net_worth_range" className={labelClassName} style={labelStyle}>
+              Net Worth Range
+            </label>
+            <select
+              id="net_worth_range"
+              value={form.net_worth_range}
+              onChange={(e) => updateField("net_worth_range", e.target.value)}
+              className={inputClassName}
+              style={{ ...inputStyle, minHeight: 48, appearance: "none" as const }}
+            >
+              <option value="">-- Select --</option>
+              {NET_WORTH_RANGES.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="risk_profile" className={labelClassName} style={labelStyle}>
+              Risk Profile
+            </label>
+            <select
+              id="risk_profile"
+              value={form.risk_profile}
+              onChange={(e) => updateField("risk_profile", e.target.value)}
+              className={inputClassName}
+              style={{ ...inputStyle, minHeight: 48, appearance: "none" as const }}
+            >
+              <option value="">-- Select --</option>
+              {RISK_PROFILES.map((r) => (
+                <option key={r.value} value={r.value}>
+                  {r.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="source" className={labelClassName} style={labelStyle}>
+              Source
+            </label>
+            <input
+              id="source"
+              type="text"
+              placeholder="e.g. Referral, LinkedIn, Event"
+              value={form.source}
+              onChange={(e) => updateField("source", e.target.value)}
+              className={inputClassName}
+              style={{ ...inputStyle, minHeight: 48 }}
+            />
+          </div>
+        </MobileCard>
+
+        {/* Notes */}
+        <MobileCard className="flex flex-col gap-4">
+          <div>
+            <label htmlFor="notes" className={labelClassName} style={labelStyle}>
+              Notes
             </label>
             <textarea
-              id="background"
+              id="notes"
               rows={4}
-              placeholder="Notes about this contact..."
-              value={form.background}
-              onChange={(e) => updateField("background", e.target.value)}
+              placeholder="Notes about this client..."
+              value={form.notes}
+              onChange={(e) => updateField("notes", e.target.value)}
               className={inputClassName + " resize-none"}
               style={{ ...inputStyle, minHeight: 100 }}
             />
           </div>
-
-          <label
-            htmlFor="has_newsletter"
-            className="flex items-center gap-3 cursor-pointer py-1"
-          >
-            <div className="relative">
-              <input
-                id="has_newsletter"
-                type="checkbox"
-                checked={form.has_newsletter}
-                onChange={(e) => updateField("has_newsletter", e.target.checked)}
-                className="sr-only peer"
-              />
-              <div
-                className="w-11 h-6 rounded-full transition-colors peer-checked:bg-[var(--gold)]"
-                style={{
-                  background: form.has_newsletter
-                    ? "var(--gold)"
-                    : "var(--border-color)",
-                }}
-              />
-              <div
-                className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform shadow-sm"
-                style={{
-                  transform: form.has_newsletter
-                    ? "translateX(20px)"
-                    : "translateX(0)",
-                }}
-              />
-            </div>
-            <span className="text-sm" style={{ color: "var(--text-primary)" }}>
-              Subscribe to newsletter
-            </span>
-          </label>
         </MobileCard>
 
         {/* Submit */}

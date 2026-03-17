@@ -158,6 +158,34 @@ function applyDarkMode(dark: boolean) {
   }
 }
 
+function getInitialsFromFullName(fullName: string): { first: string; last: string } {
+  const parts = fullName.trim().split(/\s+/);
+  return {
+    first: parts[0] || "",
+    last: parts.length > 1 ? parts[parts.length - 1] : "",
+  };
+}
+
+const roleLabelMap: Record<string, string> = {
+  admin: "Admin",
+  consultant: "Consultant",
+  manager: "Manager",
+  analyst: "Analyst",
+  user: "User",
+  partner: "Partner",
+  director: "Director",
+};
+
+const roleVariantMap: Record<string, "gold" | "info" | "success" | "warning" | "default"> = {
+  admin: "gold",
+  partner: "gold",
+  director: "gold",
+  manager: "info",
+  consultant: "success",
+  analyst: "info",
+  user: "default",
+};
+
 export function SettingsPage() {
   const { user, sale, signOut } = useAuth();
   const navigate = useNavigate();
@@ -184,13 +212,12 @@ export function SettingsPage() {
     navigate("/login");
   }, [signOut, navigate]);
 
-  const firstName = sale?.first_name ?? "";
-  const lastName = sale?.last_name ?? "";
-  const fullName =
-    firstName || lastName
-      ? `${firstName} ${lastName}`.trim()
-      : "Unknown User";
-  const email = user?.email ?? sale?.email ?? "";
+  // Derive display values from user_profiles shape
+  const fullName = sale?.full_name || `${sale?.first_name || ""} ${sale?.last_name || ""}`.trim() || "Unknown User";
+  const { first: avatarFirst, last: avatarLast } = getInitialsFromFullName(fullName);
+  const email = sale?.email || user?.email || "";
+  const role = sale?.role || "user";
+  const isActive = sale?.is_active ?? true;
 
   return (
     <div
@@ -205,9 +232,9 @@ export function SettingsPage() {
       <MobileCard className="mx-4">
         <div className="flex items-center gap-4">
           <Avatar
-            firstName={firstName}
-            lastName={lastName}
-            src={sale?.avatar?.src}
+            firstName={avatarFirst}
+            lastName={avatarLast}
+            src={sale?.avatar_url ?? undefined}
             size="xl"
           />
           <div className="flex-1 min-w-0">
@@ -226,11 +253,11 @@ export function SettingsPage() {
               </p>
             )}
             <div className="flex items-center gap-2 mt-2">
-              {sale?.administrator && (
-                <Badge variant="gold">Admin</Badge>
-              )}
-              {sale?.disabled && (
-                <Badge variant="danger">Disabled</Badge>
+              <Badge variant={roleVariantMap[role] ?? "default"}>
+                {roleLabelMap[role] ?? role}
+              </Badge>
+              {!isActive && (
+                <Badge variant="danger">Inactive</Badge>
               )}
             </div>
           </div>
@@ -291,7 +318,7 @@ export function SettingsPage() {
             />
           }
           onClick={() => {
-            // Placeholder — language selector not yet implemented
+            // Placeholder -- language selector not yet implemented
           }}
         />
       </MobileCard>

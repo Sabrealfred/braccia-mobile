@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Building2, ChevronRight, Users, Briefcase, MapPin } from "lucide-react";
+import { Building2, ChevronRight, Users, DollarSign, MapPin } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { SearchBar } from "../components/ui/SearchBar";
 import { FAB } from "../components/ui/FAB";
@@ -10,25 +10,38 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { ListSkeleton } from "../components/ui/Skeleton";
 import { Avatar } from "../components/ui/Avatar";
 import { SectionTitle } from "../components/ui/MobileCard";
-import type { Company } from "../types";
 
 type BadgeVariant = "default" | "gold" | "success" | "warning" | "danger" | "info" | "outline";
 
-const sectorVariants: Record<string, BadgeVariant> = {
+interface ClientEntity {
+  id: string;
+  name: string;
+  industry?: string;
+  city?: string;
+  country?: string;
+  annual_revenue?: number;
+  employee_count?: number;
+  primary_phone?: string;
+  primary_email?: string;
+  website?: string;
+  status?: string;
+  created_at?: string;
+}
+
+const industryVariants: Record<string, BadgeVariant> = {
   "Technology": "info",
   "Finance": "gold",
   "Healthcare": "success",
   "Energy": "warning",
   "Real Estate": "danger",
   "Manufacturing": "default",
-  "Retail": "outline",
-  "Hospitality": "gold",
-  "Food & Beverage": "success",
-  "Transportation": "info",
+  "Legal": "outline",
+  "Consulting": "gold",
+  "Other": "default",
 };
 
-function getSectorVariant(sector: string): BadgeVariant {
-  return sectorVariants[sector] ?? "default";
+function getIndustryVariant(industry: string): BadgeVariant {
+  return industryVariants[industry] ?? "default";
 }
 
 function formatLocation(city?: string, country?: string): string | null {
@@ -36,10 +49,19 @@ function formatLocation(city?: string, country?: string): string | null {
   return city || country || null;
 }
 
-async function fetchCompanies(search: string): Promise<Company[]> {
+function formatRevenue(amount?: number): string | null {
+  if (!amount) return null;
+  if (amount >= 1_000_000_000) return `$${(amount / 1_000_000_000).toFixed(1)}B`;
+  if (amount >= 1_000_000) return `$${(amount / 1_000_000).toFixed(1)}M`;
+  if (amount >= 1_000) return `$${(amount / 1_000).toFixed(0)}K`;
+  return `$${amount}`;
+}
+
+async function fetchEntities(search: string): Promise<ClientEntity[]> {
   let query = supabase
-    .from("companies")
+    .from("clients")
     .select("*")
+    .eq("client_type", "entity")
     .order("name");
 
   if (search.trim()) {
@@ -48,44 +70,44 @@ async function fetchCompanies(search: string): Promise<Company[]> {
 
   const { data, error } = await query;
   if (error) throw error;
-  return data ?? [];
+  return (data ?? []) as ClientEntity[];
 }
 
-interface SectorGroup {
-  sector: string;
-  companies: Company[];
+interface IndustryGroup {
+  industry: string;
+  companies: ClientEntity[];
 }
 
-function groupBySector(companies: Company[]): SectorGroup[] {
-  const map = new Map<string, Company[]>();
+function groupByIndustry(companies: ClientEntity[]): IndustryGroup[] {
+  const map = new Map<string, ClientEntity[]>();
 
   for (const company of companies) {
-    const sector = company.sector || "Other";
-    const existing = map.get(sector);
+    const industry = company.industry || "Other";
+    const existing = map.get(industry);
     if (existing) {
       existing.push(company);
     } else {
-      map.set(sector, [company]);
+      map.set(industry, [company]);
     }
   }
 
   return Array.from(map.entries())
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([sector, companies]) => ({ sector, companies }));
+    .map(([industry, companies]) => ({ industry, companies }));
 }
 
 export function CompaniesPage() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
 
-  const { data: companies, isLoading, error } = useQuery<Company[]>({
+  const { data: companies, isLoading, error } = useQuery<ClientEntity[]>({
     queryKey: ["companies", search],
-    queryFn: () => fetchCompanies(search),
+    queryFn: () => fetchEntities(search),
     staleTime: 30_000,
   });
 
   const groups = useMemo(
-    () => groupBySector(companies ?? []),
+    () => groupByIndustry(companies ?? []),
     [companies],
   );
 
@@ -147,14 +169,15 @@ export function CompaniesPage() {
       {!isLoading && !error && totalCount > 0 && (
         <div>
           {groups.map((group) => (
-            <div key={group.sector}>
+            <div key={group.industry}>
               <SectionTitle count={group.companies.length}>
-                {group.sector}
+                {group.industry}
               </SectionTitle>
 
               <div>
                 {group.companies.map((company) => {
                   const location = formatLocation(company.city, company.country);
+                  const revenue = formatRevenue(company.annual_revenue);
 
                   return (
                     <button
@@ -169,13 +192,12 @@ export function CompaniesPage() {
                       <Avatar
                         firstName={company.name}
                         lastName=""
-                        src={company.logo?.src}
                         size="lg"
                       />
 
                       {/* Content */}
                       <div className="flex-1 min-w-0">
-                        {/* Name + sector */}
+                        {/* Name + industry */}
                         <div className="flex items-center gap-2">
                           <span
                             className="text-sm font-semibold truncate"
@@ -183,12 +205,12 @@ export function CompaniesPage() {
                           >
                             {company.name}
                           </span>
-                          {company.sector && (
+                          {company.industry && (
                             <Badge
-                              variant={getSectorVariant(company.sector)}
+                              variant={getIndustryVariant(company.industry)}
                               className="shrink-0"
                             >
-                              {company.sector}
+                              {company.industry}
                             </Badge>
                           )}
                         </div>
@@ -212,30 +234,34 @@ export function CompaniesPage() {
 
                         {/* Stats row */}
                         <div className="flex items-center gap-3 mt-1">
-                          <div className="flex items-center gap-1">
-                            <Users
-                              size={12}
-                              style={{ color: "var(--text-muted)" }}
-                            />
-                            <span
-                              className="text-[11px]"
-                              style={{ color: "var(--text-muted)" }}
-                            >
-                              {company.nb_contacts ?? 0}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <Briefcase
-                              size={12}
-                              style={{ color: "var(--text-muted)" }}
-                            />
-                            <span
-                              className="text-[11px]"
-                              style={{ color: "var(--text-muted)" }}
-                            >
-                              {company.nb_deals ?? 0}
-                            </span>
-                          </div>
+                          {revenue && (
+                            <div className="flex items-center gap-1">
+                              <DollarSign
+                                size={12}
+                                style={{ color: "var(--text-muted)" }}
+                              />
+                              <span
+                                className="text-[11px]"
+                                style={{ color: "var(--text-muted)" }}
+                              >
+                                {revenue}
+                              </span>
+                            </div>
+                          )}
+                          {company.employee_count != null && company.employee_count > 0 && (
+                            <div className="flex items-center gap-1">
+                              <Users
+                                size={12}
+                                style={{ color: "var(--text-muted)" }}
+                              />
+                              <span
+                                className="text-[11px]"
+                                style={{ color: "var(--text-muted)" }}
+                              >
+                                {company.employee_count}
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </div>
 

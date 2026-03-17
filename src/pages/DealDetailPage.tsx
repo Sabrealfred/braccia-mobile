@@ -2,11 +2,13 @@ import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Building2,
+  AlertTriangle,
   Calendar,
   ChevronRight,
   Clock,
+  DollarSign,
   FileText,
+  Lock,
   Plus,
   Send,
   User,
@@ -16,10 +18,9 @@ import { useAuth } from "../providers/AuthProvider";
 import { formatCurrency, formatDate } from "../lib/utils";
 import { PageHeader } from "../components/ui/PageHeader";
 import { MobileCard, SectionTitle } from "../components/ui/MobileCard";
-import { Avatar } from "../components/ui/Avatar";
 import { Badge } from "../components/ui/Badge";
 import { Skeleton } from "../components/ui/Skeleton";
-import type { Deal, DealNote, Contact, Company } from "../types";
+import type { Deal, Client, ConsultantNote, Task } from "../types";
 
 // ---------------------------------------------------------------------------
 // Stage helpers
@@ -76,6 +77,34 @@ function stageLabel(stage: string): string {
   }
 }
 
+function priorityVariant(p?: string | null): StageBadgeVariant {
+  switch (p) {
+    case "critical":
+      return "danger";
+    case "high":
+      return "warning";
+    case "medium":
+      return "info";
+    case "low":
+      return "default";
+    default:
+      return "default";
+  }
+}
+
+function riskVariant(r?: string | null): StageBadgeVariant {
+  switch (r) {
+    case "high":
+      return "danger";
+    case "medium":
+      return "warning";
+    case "low":
+      return "success";
+    default:
+      return "default";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Data fetchers
 // ---------------------------------------------------------------------------
@@ -96,52 +125,56 @@ function useDeal(id: string | undefined) {
   });
 }
 
-function useCompanyForDeal(companyId: number | undefined) {
-  return useQuery<Company>({
-    queryKey: ["companies", "one", companyId],
+function useClientForDeal(clientId: string | null | undefined) {
+  return useQuery<Client>({
+    queryKey: ["clients", "one", clientId],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("companies")
+        .from("clients")
         .select("*")
-        .eq("id", companyId!)
+        .eq("id", clientId!)
         .single();
       if (error) throw error;
-      return data as Company;
+      return data as Client;
     },
-    enabled: !!companyId,
+    enabled: !!clientId,
   });
 }
-
-function useContactsForDeal(contactIds: number[] | undefined) {
-  return useQuery<Contact[]>({
-    queryKey: ["contacts", "forDeal", contactIds],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("contacts")
-        .select("*")
-        .in("id", contactIds!);
-      if (error) throw error;
-      return data as Contact[];
-    },
-    enabled: !!contactIds && contactIds.length > 0,
-  });
-}
-
-type DealNoteWithAuthor = DealNote & {
-  sales: { first_name: string; last_name: string } | null;
-};
 
 function useDealNotes(dealId: string | undefined) {
-  return useQuery<DealNoteWithAuthor[]>({
-    queryKey: ["dealNotes", "list", dealId],
+  return useQuery<ConsultantNote[]>({
+    queryKey: ["consultant_notes", "deal", dealId],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("dealNotes")
-        .select("*, sales(first_name, last_name)")
+        .from("consultant_notes")
+        .select("*")
         .eq("deal_id", dealId!)
-        .order("date", { ascending: false });
-      if (error) throw error;
-      return (data ?? []) as DealNoteWithAuthor[];
+        .order("created_at", { ascending: false });
+      if (error) {
+        // Table may not exist yet — return empty array gracefully
+        console.warn("consultant_notes query error:", error.message);
+        return [];
+      }
+      return (data ?? []) as ConsultantNote[];
+    },
+    enabled: !!dealId,
+  });
+}
+
+function useDealTasks(dealId: string | undefined) {
+  return useQuery<Task[]>({
+    queryKey: ["tasks", "deal", dealId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("tasks")
+        .select("*")
+        .eq("deal_id", dealId!)
+        .order("created_at", { ascending: false });
+      if (error) {
+        console.warn("tasks query error:", error.message);
+        return [];
+      }
+      return (data ?? []) as Task[];
     },
     enabled: !!dealId,
   });
@@ -207,23 +240,23 @@ function NotesSkeleton() {
 function AddNoteForm({ dealId }: { dealId: string }) {
   const [text, setText] = useState("");
   const [open, setOpen] = useState(false);
-  const { sale } = useAuth();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
     mutationFn: async (noteText: string) => {
-      const { error } = await supabase.from("dealNotes").insert({
-        deal_id: Number(dealId),
+      const { error } = await supabase.from("consultant_notes").insert({
+        deal_id: dealId,
         text: noteText,
         date: new Date().toISOString(),
-        sales_id: sale?.id,
+        created_by: user?.id ?? null,
       });
       if (error) throw error;
     },
     onSuccess: () => {
       setText("");
       setOpen(false);
-      queryClient.invalidateQueries({ queryKey: ["dealNotes", "list", dealId] });
+      queryClient.invalidateQueries({ queryKey: ["consultant_notes", "deal", dealId] });
     },
   });
 
@@ -298,6 +331,35 @@ function AddNoteForm({ dealId }: { dealId: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Info Row helper
+// ---------------------------------------------------------------------------
+
+function InfoRow({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: React.ComponentType<{ size: number; style?: React.CSSProperties }>;
+  label: string;
+  value: string | null | undefined;
+}) {
+  if (!value) return null;
+  return (
+    <div className="flex items-start gap-2.5">
+      <Icon size={14} style={{ color: "var(--text-muted)", flexShrink: 0, marginTop: 2 }} />
+      <div>
+        <span className="text-[11px] font-medium" style={{ color: "var(--text-muted)" }}>
+          {label}
+        </span>
+        <p className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>
+          {value}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Page
 // ---------------------------------------------------------------------------
 
@@ -306,21 +368,14 @@ export function DealDetailPage() {
   const navigate = useNavigate();
 
   const { data: deal, isLoading, isError } = useDeal(id);
-  const { data: company, isLoading: companyLoading } = useCompanyForDeal(
-    deal?.company_id
-  );
-  const { data: contacts, isLoading: contactsLoading } = useContactsForDeal(
-    deal?.contact_ids
-  );
+  const { data: client, isLoading: clientLoading } = useClientForDeal(deal?.client_id);
   const { data: notes, isLoading: notesLoading } = useDealNotes(id);
+  const { data: tasks, isLoading: tasksLoading } = useDealTasks(id);
 
   // ---- Error state ----
   if (isError) {
     return (
-      <div
-        className="min-h-screen"
-        style={{ background: "var(--bg-primary)" }}
-      >
+      <div className="min-h-screen" style={{ background: "var(--bg-primary)" }}>
         <PageHeader title="Deal" back />
         <div className="flex flex-col items-center justify-center px-6 pt-20 text-center">
           <div
@@ -332,16 +387,10 @@ export function DealDetailPage() {
           >
             <FileText size={24} />
           </div>
-          <p
-            className="text-base font-semibold"
-            style={{ color: "var(--text-primary)" }}
-          >
+          <p className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>
             Deal not found
           </p>
-          <p
-            className="text-sm mt-1"
-            style={{ color: "var(--text-muted)" }}
-          >
+          <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>
             This deal may have been deleted or you may not have access.
           </p>
         </div>
@@ -350,10 +399,7 @@ export function DealDetailPage() {
   }
 
   return (
-    <div
-      className="min-h-screen pb-24"
-      style={{ background: "var(--bg-primary)" }}
-    >
+    <div className="min-h-screen pb-24" style={{ background: "var(--bg-primary)" }}>
       {/* ---- Header ---- */}
       <PageHeader title={deal?.name ?? "Deal"} back />
 
@@ -362,6 +408,16 @@ export function DealDetailPage() {
         <HeroSkeleton />
       ) : deal ? (
         <MobileCard className="mx-4">
+          {/* Confidential badge */}
+          {deal.is_confidential && (
+            <div className="flex items-center gap-1.5 mb-2">
+              <Lock size={12} style={{ color: "var(--danger)" }} />
+              <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--danger)" }}>
+                Confidential
+              </span>
+            </div>
+          )}
+
           {/* Deal name */}
           <h2
             className="text-xl font-bold font-serif leading-tight"
@@ -370,168 +426,145 @@ export function DealDetailPage() {
             {deal.name}
           </h2>
 
-          {/* Amount */}
-          <p
-            className="text-3xl font-bold font-serif tracking-tight mt-2"
-            style={{ color: "var(--text-gold)" }}
-          >
-            {formatCurrency(deal.amount)}
-          </p>
+          {/* Deal value */}
+          {deal.deal_value != null && deal.deal_value > 0 && (
+            <p
+              className="text-3xl font-bold font-serif tracking-tight mt-2"
+              style={{ color: "var(--text-gold)" }}
+            >
+              {formatCurrency(deal.deal_value)}
+            </p>
+          )}
 
           {/* Badges */}
           <div className="flex flex-wrap items-center gap-2 mt-3">
             <Badge variant={stageBadgeVariant(deal.stage)}>
               {stageLabel(deal.stage)}
             </Badge>
-            {deal.category && (
-              <Badge variant="outline">{deal.category}</Badge>
+            {deal.status && (
+              <Badge variant="outline">{deal.status}</Badge>
+            )}
+            {deal.deal_type && (
+              <Badge variant="outline">{deal.deal_type}</Badge>
+            )}
+            {deal.priority && (
+              <Badge variant={priorityVariant(deal.priority)}>
+                {deal.priority}
+              </Badge>
+            )}
+            {deal.risk_level && (
+              <Badge variant={riskVariant(deal.risk_level)}>
+                Risk: {deal.risk_level}
+              </Badge>
             )}
           </div>
 
           {/* Meta dates */}
-          <div className="mt-4 space-y-2">
-            {deal.expected_closing_date && (
-              <div className="flex items-center gap-2">
-                <Calendar
-                  size={14}
-                  style={{ color: "var(--text-muted)", flexShrink: 0 }}
-                />
-                <span
-                  className="text-xs font-medium"
-                  style={{ color: "var(--text-secondary)" }}
-                >
-                  Expected close:{" "}
-                  <span style={{ color: "var(--text-primary)" }}>
-                    {formatDate(deal.expected_closing_date)}
-                  </span>
-                </span>
-              </div>
-            )}
+          <div className="mt-4 space-y-2.5">
+            <InfoRow icon={Calendar} label="Expected Close" value={deal.expected_close_date ? formatDate(deal.expected_close_date) : null} />
+            <InfoRow icon={Calendar} label="Actual Close" value={deal.actual_close_date ? formatDate(deal.actual_close_date) : null} />
+            <InfoRow icon={Calendar} label="DD Start" value={deal.dd_start_date ? formatDate(deal.dd_start_date) : null} />
+            <InfoRow icon={Calendar} label="DD End" value={deal.dd_end_date ? formatDate(deal.dd_end_date) : null} />
+            <InfoRow icon={Calendar} label="LOI Signed" value={deal.loi_signed_date ? formatDate(deal.loi_signed_date) : null} />
             <div className="flex items-center gap-2">
-              <Clock
-                size={14}
-                style={{ color: "var(--text-muted)", flexShrink: 0 }}
-              />
-              <span
-                className="text-xs"
-                style={{ color: "var(--text-muted)" }}
-              >
+              <Clock size={14} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+              <span className="text-xs" style={{ color: "var(--text-muted)" }}>
                 Created {formatDate(deal.created_at)}
                 {deal.updated_at &&
                   deal.updated_at !== deal.created_at &&
-                  ` · Updated ${formatDate(deal.updated_at)}`}
+                  ` -- Updated ${formatDate(deal.updated_at)}`}
               </span>
             </div>
           </div>
         </MobileCard>
       ) : null}
 
-      {/* ---- Company Section ---- */}
-      {deal?.company_id && (
+      {/* ---- Financials Section ---- */}
+      {deal && (deal.enterprise_value || deal.equity_value || deal.expected_revenue) && (
         <div className="mt-5">
-          <SectionTitle>Company</SectionTitle>
-          {companyLoading ? (
+          <SectionTitle>Financials</SectionTitle>
+          <MobileCard className="mx-4 space-y-3">
+            {deal.enterprise_value != null && deal.enterprise_value > 0 && (
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>
+                  Enterprise Value
+                </span>
+                <span className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
+                  {formatCurrency(deal.enterprise_value)}
+                </span>
+              </div>
+            )}
+            {deal.equity_value != null && deal.equity_value > 0 && (
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>
+                  Equity Value
+                </span>
+                <span className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
+                  {formatCurrency(deal.equity_value)}
+                </span>
+              </div>
+            )}
+            {deal.expected_revenue != null && deal.expected_revenue > 0 && (
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>
+                  Expected Revenue
+                </span>
+                <span className="text-sm font-bold" style={{ color: "var(--text-gold)" }}>
+                  {formatCurrency(deal.expected_revenue)}
+                </span>
+              </div>
+            )}
+          </MobileCard>
+        </div>
+      )}
+
+      {/* ---- Client Section ---- */}
+      {deal?.client_id && (
+        <div className="mt-5">
+          <SectionTitle>Client</SectionTitle>
+          {clientLoading ? (
             <SectionSkeleton />
-          ) : company ? (
+          ) : client ? (
             <MobileCard className="mx-4">
               <button
-                onClick={() => navigate(`/companies/${company.id}`)}
+                onClick={() => navigate(`/contacts/${client.id}`)}
                 className="flex items-center gap-3 w-full text-left transition-colors active:opacity-80"
               >
                 <div
                   className="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
                   style={{
-                    background:
-                      "color-mix(in srgb, var(--gold) 12%, transparent)",
+                    background: "color-mix(in srgb, var(--gold) 12%, transparent)",
                     color: "var(--text-gold)",
                   }}
                 >
-                  <Building2 size={18} />
+                  <User size={18} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p
-                    className="text-sm font-semibold truncate"
-                    style={{ color: "var(--text-primary)" }}
-                  >
-                    {company.name}
+                  <p className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }}>
+                    {client.name}
                   </p>
-                  {company.sector && (
-                    <p
-                      className="text-xs truncate mt-0.5"
-                      style={{ color: "var(--text-secondary)" }}
-                    >
-                      {company.sector}
+                  {client.industry && (
+                    <p className="text-xs truncate mt-0.5" style={{ color: "var(--text-secondary)" }}>
+                      {client.industry}
                     </p>
                   )}
                 </div>
-                <ChevronRight
-                  size={18}
-                  style={{ color: "var(--text-muted)", flexShrink: 0 }}
-                />
+                <ChevronRight size={18} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
               </button>
             </MobileCard>
           ) : null}
         </div>
       )}
 
-      {/* ---- Contacts Section ---- */}
-      {deal?.contact_ids && deal.contact_ids.length > 0 && (
+      {/* ---- Deal Parties ---- */}
+      {deal && (deal.target_company || deal.buyer_name || deal.seller_name) && (
         <div className="mt-5">
-          <SectionTitle count={contacts?.length ?? deal.contact_ids.length}>
-            Contacts
-          </SectionTitle>
-          {contactsLoading ? (
-            <div className="mx-4 space-y-2">
-              {Array.from({ length: Math.min(deal.contact_ids.length, 3) }).map(
-                (_, i) => (
-                  <SectionSkeleton key={i} />
-                )
-              )}
-            </div>
-          ) : contacts && contacts.length > 0 ? (
-            <MobileCard noPadding className="mx-4 overflow-hidden">
-              {contacts.map((contact, idx) => (
-                <button
-                  key={contact.id}
-                  onClick={() => navigate(`/contacts/${contact.id}`)}
-                  className="flex items-center gap-3 w-full px-4 py-3 text-left transition-colors active:bg-[var(--bg-muted)]"
-                  style={{
-                    borderBottom:
-                      idx < contacts.length - 1
-                        ? "1px solid var(--border-light)"
-                        : undefined,
-                  }}
-                >
-                  <Avatar
-                    firstName={contact.first_name}
-                    lastName={contact.last_name}
-                    src={contact.avatar?.src}
-                    size="md"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p
-                      className="text-sm font-semibold truncate"
-                      style={{ color: "var(--text-primary)" }}
-                    >
-                      {contact.first_name} {contact.last_name}
-                    </p>
-                    {contact.title && (
-                      <p
-                        className="text-xs truncate mt-0.5"
-                        style={{ color: "var(--text-secondary)" }}
-                      >
-                        {contact.title}
-                      </p>
-                    )}
-                  </div>
-                  <ChevronRight
-                    size={18}
-                    style={{ color: "var(--text-muted)", flexShrink: 0 }}
-                  />
-                </button>
-              ))}
-            </MobileCard>
-          ) : null}
+          <SectionTitle>Parties</SectionTitle>
+          <MobileCard className="mx-4 space-y-2.5">
+            <InfoRow icon={User} label="Target Company" value={deal.target_company} />
+            <InfoRow icon={User} label="Buyer" value={deal.buyer_name} />
+            <InfoRow icon={User} label="Seller" value={deal.seller_name} />
+          </MobileCard>
         </div>
       )}
 
@@ -550,6 +583,96 @@ export function DealDetailPage() {
         </div>
       )}
 
+      {/* ---- Strategic Rationale ---- */}
+      {deal?.strategic_rationale && (
+        <div className="mt-5">
+          <SectionTitle>Strategic Rationale</SectionTitle>
+          <MobileCard className="mx-4">
+            <p
+              className="text-sm leading-relaxed whitespace-pre-wrap"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              {deal.strategic_rationale}
+            </p>
+          </MobileCard>
+        </div>
+      )}
+
+      {/* ---- Synergies ---- */}
+      {deal?.synergies_description && (
+        <div className="mt-5">
+          <SectionTitle>Synergies</SectionTitle>
+          <MobileCard className="mx-4">
+            <p
+              className="text-sm leading-relaxed whitespace-pre-wrap"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              {deal.synergies_description}
+            </p>
+          </MobileCard>
+        </div>
+      )}
+
+      {/* ---- Payment Structure ---- */}
+      {deal?.payment_structure && (
+        <div className="mt-5">
+          <SectionTitle>Payment Structure</SectionTitle>
+          <MobileCard className="mx-4">
+            <p
+              className="text-sm leading-relaxed whitespace-pre-wrap"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              {deal.payment_structure}
+            </p>
+          </MobileCard>
+        </div>
+      )}
+
+      {/* ---- Tasks Section ---- */}
+      <div className="mt-5">
+        <SectionTitle count={tasks?.length}>Tasks</SectionTitle>
+        {tasksLoading ? (
+          <NotesSkeleton />
+        ) : tasks && tasks.length > 0 ? (
+          <div className="mx-4 space-y-2">
+            {tasks.map((task) => (
+              <MobileCard key={task.id}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }}>
+                      {task.title}
+                    </p>
+                    {task.description && (
+                      <p className="text-xs mt-1 line-clamp-2" style={{ color: "var(--text-muted)" }}>
+                        {task.description}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    {task.status && (
+                      <Badge variant={task.status === "completed" ? "success" : task.status === "in_progress" ? "warning" : "default"}>
+                        {task.status}
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+                {task.due_date && (
+                  <p className="text-[11px] mt-1.5" style={{ color: "var(--text-muted)" }}>
+                    Due: {formatDate(task.due_date)}
+                  </p>
+                )}
+              </MobileCard>
+            ))}
+          </div>
+        ) : (
+          <div className="mx-4 py-6 text-center">
+            <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+              No tasks yet
+            </p>
+          </div>
+        )}
+      </div>
+
       {/* ---- Notes Section ---- */}
       <div className="mt-5">
         <SectionTitle count={notes?.length}>Notes</SectionTitle>
@@ -565,36 +688,14 @@ export function DealDetailPage() {
             {notes && notes.length > 0 ? (
               notes.map((note) => (
                 <MobileCard key={note.id}>
-                  {/* Note header: date + author */}
+                  {/* Note header: date */}
                   <div className="flex items-center gap-2 mb-2">
                     <span
                       className="text-[11px] font-medium"
                       style={{ color: "var(--text-muted)" }}
                     >
-                      {formatDate(note.date)}
+                      {formatDate(note.date || note.created_at)}
                     </span>
-                    {note.sales && (
-                      <>
-                        <span
-                          className="text-[11px]"
-                          style={{ color: "var(--text-muted)" }}
-                        >
-                          &middot;
-                        </span>
-                        <div className="flex items-center gap-1">
-                          <User
-                            size={11}
-                            style={{ color: "var(--text-muted)" }}
-                          />
-                          <span
-                            className="text-[11px] font-medium"
-                            style={{ color: "var(--text-secondary)" }}
-                          >
-                            {note.sales.first_name} {note.sales.last_name}
-                          </span>
-                        </div>
-                      </>
-                    )}
                   </div>
 
                   {/* Note body */}
@@ -608,10 +709,7 @@ export function DealDetailPage() {
               ))
             ) : (
               <div className="py-6 text-center">
-                <p
-                  className="text-sm"
-                  style={{ color: "var(--text-muted)" }}
-                >
+                <p className="text-sm" style={{ color: "var(--text-muted)" }}>
                   No notes yet
                 </p>
               </div>

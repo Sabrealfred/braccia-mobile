@@ -1,18 +1,66 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Mail, Shield, ShieldOff, Briefcase, Users } from "lucide-react";
+import {
+  Mail,
+  Shield,
+  ShieldOff,
+  Briefcase,
+  Users,
+  Phone,
+  Building2,
+  Clock,
+  Key,
+} from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../providers/AuthProvider";
-import { formatCurrency } from "../lib/utils";
+import { formatCurrency, formatRelativeDate } from "../lib/utils";
 import { Avatar } from "../components/ui/Avatar";
 import { Badge } from "../components/ui/Badge";
 import { PageHeader } from "../components/ui/PageHeader";
 import { MobileCard, SectionTitle } from "../components/ui/MobileCard";
 import { Skeleton, ListSkeleton } from "../components/ui/Skeleton";
-import type { Sale, Deal, Contact } from "../types";
 
 // ---------------------------------------------------------------------------
-// Stage helpers (matching DashboardPage)
+// staff_users row shape (matches matwal-premium Supabase schema)
+// ---------------------------------------------------------------------------
+
+interface StaffUser {
+  id: string;
+  user_id: string;
+  email: string;
+  full_name: string;
+  role: string;
+  department: string | null;
+  phone: string | null;
+  avatar_url: string | null;
+  is_active: boolean;
+  permissions: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+  organization_id: string | null;
+  last_login_at: string | null;
+}
+
+interface DealRow {
+  id: string;
+  name: string;
+  stage: string;
+  deal_value: number | null;
+  updated_at: string;
+  client_id: string | null;
+}
+
+interface ClientRow {
+  id: string;
+  name: string;
+  full_name: string | null;
+  status: string | null;
+  client_type: string | null;
+  updated_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Stage helpers
 // ---------------------------------------------------------------------------
 
 type StageBadgeVariant =
@@ -67,101 +115,102 @@ function stageLabel(stage: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function isAdmin(staff: StaffUser): boolean {
+  if (staff.role === "admin") return true;
+  if (
+    staff.permissions &&
+    typeof staff.permissions === "object" &&
+    "admin" in staff.permissions &&
+    staff.permissions.admin
+  )
+    return true;
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // Data hooks
 // ---------------------------------------------------------------------------
 
 function useStaffMember(id: string) {
-  return useQuery<Sale>({
+  return useQuery<StaffUser>({
     queryKey: ["staff", "detail", id],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("sales")
+        .from("staff_users")
         .select("*")
         .eq("id", id)
         .single();
       if (error) throw error;
-      return data;
+      return data as StaffUser;
     },
     enabled: !!id,
   });
 }
 
-function useDealCount(salesId: string) {
+function useDealCount(userId: string) {
   return useQuery<number>({
-    queryKey: ["staff", "dealCount", salesId],
+    queryKey: ["staff", "dealCount", userId],
     queryFn: async () => {
       const { count, error } = await supabase
         .from("deals")
         .select("id", { count: "exact", head: true })
-        .eq("sales_id", salesId);
+        .eq("lead_consultant", userId);
       if (error) throw error;
       return count ?? 0;
     },
-    enabled: !!salesId,
+    enabled: !!userId,
   });
 }
 
-function useContactCount(salesId: string) {
+function useClientCount(userId: string) {
   return useQuery<number>({
-    queryKey: ["staff", "contactCount", salesId],
+    queryKey: ["staff", "clientCount", userId],
     queryFn: async () => {
       const { count, error } = await supabase
-        .from("contacts")
+        .from("clients")
         .select("id", { count: "exact", head: true })
-        .eq("sales_id", salesId);
+        .eq("assigned_consultant", userId);
       if (error) throw error;
       return count ?? 0;
     },
-    enabled: !!salesId,
+    enabled: !!userId,
   });
 }
 
-function useNoteCount(salesId: string) {
-  return useQuery<number>({
-    queryKey: ["staff", "noteCount", salesId],
-    queryFn: async () => {
-      const { count, error } = await supabase
-        .from("contactNotes")
-        .select("id", { count: "exact", head: true })
-        .eq("sales_id", salesId);
-      if (error) throw error;
-      return count ?? 0;
-    },
-    enabled: !!salesId,
-  });
-}
-
-function useRecentDeals(salesId: string) {
-  return useQuery<(Deal & { companies: { name: string } | null })[]>({
-    queryKey: ["staff", "recentDeals", salesId],
+function useRecentDeals(userId: string) {
+  return useQuery<DealRow[]>({
+    queryKey: ["staff", "recentDeals", userId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("deals")
-        .select("*, companies(name)")
-        .eq("sales_id", salesId)
+        .select("*")
+        .eq("lead_consultant", userId)
         .order("updated_at", { ascending: false })
         .limit(5);
       if (error) throw error;
-      return (data ?? []) as (Deal & { companies: { name: string } | null })[];
+      return (data ?? []) as DealRow[];
     },
-    enabled: !!salesId,
+    enabled: !!userId,
   });
 }
 
-function useRecentContacts(salesId: string) {
-  return useQuery<Contact[]>({
-    queryKey: ["staff", "recentContacts", salesId],
+function useRecentClients(userId: string) {
+  return useQuery<ClientRow[]>({
+    queryKey: ["staff", "recentClients", userId],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("contacts")
+        .from("clients")
         .select("*")
-        .eq("sales_id", salesId)
-        .order("last_seen", { ascending: false })
+        .eq("assigned_consultant", userId)
+        .order("updated_at", { ascending: false })
         .limit(5);
       if (error) throw error;
-      return (data ?? []) as Contact[];
+      return (data ?? []) as ClientRow[];
     },
-    enabled: !!salesId,
+    enabled: !!userId,
   });
 }
 
@@ -200,11 +249,11 @@ function MiniStatCard({
   );
 }
 
-function DealRow({
+function DealRowItem({
   deal,
   onTap,
 }: {
-  deal: Deal & { companies: { name: string } | null };
+  deal: DealRow;
   onTap: () => void;
 }) {
   return (
@@ -232,22 +281,26 @@ function DealRow({
         >
           {deal.name}
         </p>
-        <p
-          className="text-xs truncate mt-0.5"
-          style={{ color: "var(--text-secondary)" }}
-        >
-          {deal.companies?.name ?? "No company"}
-        </p>
+        {deal.updated_at && (
+          <p
+            className="text-xs truncate mt-0.5"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            Updated {formatRelativeDate(deal.updated_at)}
+          </p>
+        )}
       </div>
 
       {/* Right side */}
       <div className="flex flex-col items-end gap-1 shrink-0">
-        <span
-          className="text-sm font-semibold tabular-nums"
-          style={{ color: "var(--text-primary)" }}
-        >
-          {formatCurrency(deal.amount)}
-        </span>
+        {deal.deal_value != null && (
+          <span
+            className="text-sm font-semibold tabular-nums"
+            style={{ color: "var(--text-primary)" }}
+          >
+            {formatCurrency(deal.deal_value)}
+          </span>
+        )}
         <Badge variant={stageBadgeVariant(deal.stage)}>
           {stageLabel(deal.stage)}
         </Badge>
@@ -256,39 +309,37 @@ function DealRow({
   );
 }
 
-function ContactRow({
-  contact,
+function ClientRowItem({
+  client,
   onTap,
 }: {
-  contact: Contact;
+  client: ClientRow;
   onTap: () => void;
 }) {
+  const displayName = client.full_name || client.name || "Unnamed";
+  const [firstName = "", lastName = ""] = displayName.split(" ");
+
   return (
     <button
       onClick={onTap}
       className="flex items-center gap-3 w-full px-4 py-3 text-left transition-colors active:bg-[var(--bg-muted)]"
       style={{ borderBottom: "1px solid var(--border-light)" }}
     >
-      <Avatar
-        firstName={contact.first_name}
-        lastName={contact.last_name}
-        src={contact.avatar?.src}
-        size="md"
-      />
+      <Avatar firstName={firstName} lastName={lastName} size="md" />
 
       <div className="flex-1 min-w-0">
         <p
           className="text-sm font-semibold truncate"
           style={{ color: "var(--text-primary)" }}
         >
-          {contact.first_name} {contact.last_name}
+          {displayName}
         </p>
         <p
           className="text-xs truncate mt-0.5"
           style={{ color: "var(--text-secondary)" }}
         >
-          {[contact.title, contact.company_name].filter(Boolean).join(" · ") ||
-            "No title"}
+          {[client.client_type, client.status].filter(Boolean).join(" \u00B7 ") ||
+            "Client"}
         </p>
       </div>
     </button>
@@ -333,26 +384,73 @@ function DealsSkeleton() {
 }
 
 // ---------------------------------------------------------------------------
+// Permissions display
+// ---------------------------------------------------------------------------
+
+function PermissionsCard({
+  permissions,
+}: {
+  permissions: Record<string, unknown> | null;
+}) {
+  if (!permissions || Object.keys(permissions).length === 0) return null;
+
+  return (
+    <div className="mt-6">
+      <SectionTitle>Permissions</SectionTitle>
+      <MobileCard className="mx-4">
+        <div className="flex flex-wrap gap-2">
+          {Object.entries(permissions).map(([key, value]) => (
+            <div key={key} className="flex items-center gap-1.5">
+              <Key size={10} style={{ color: "var(--text-muted)" }} />
+              <span
+                className="text-xs font-medium"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                {key}
+              </span>
+              {typeof value === "boolean" ? (
+                <Badge variant={value ? "success" : "danger"}>
+                  {value ? "Yes" : "No"}
+                </Badge>
+              ) : (
+                <Badge variant="default">
+                  {String(value)}
+                </Badge>
+              )}
+            </div>
+          ))}
+        </div>
+      </MobileCard>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
 export function StaffDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { sale: currentSale } = useAuth();
+  const { user } = useAuth();
 
   const staffQuery = useStaffMember(id!);
-  const dealCount = useDealCount(id!);
-  const contactCount = useContactCount(id!);
-  const noteCount = useNoteCount(id!);
-  const recentDeals = useRecentDeals(id!);
-  const recentContacts = useRecentContacts(id!);
-
   const member = staffQuery.data;
-  const isCurrentUser = member?.id === currentSale?.id;
 
-  const statsLoading =
-    dealCount.isLoading || contactCount.isLoading || noteCount.isLoading;
+  // Use user_id for relationship queries (deals.lead_consultant, clients.assigned_consultant)
+  const staffUserId = member?.user_id ?? "";
+
+  const dealCount = useDealCount(staffUserId);
+  const clientCount = useClientCount(staffUserId);
+  const recentDeals = useRecentDeals(staffUserId);
+  const recentClients = useRecentClients(staffUserId);
+
+  const isCurrentUser = member?.user_id === user?.id;
+
+  const statsLoading = dealCount.isLoading || clientCount.isLoading;
+
+  // Split full_name for Avatar
+  const [firstName = "", lastName = ""] = (member?.full_name || "").split(" ");
 
   return (
     <div
@@ -361,11 +459,7 @@ export function StaffDetailPage() {
     >
       {/* Header */}
       <PageHeader
-        title={
-          member
-            ? `${member.first_name} ${member.last_name}`
-            : "Staff Member"
-        }
+        title={member ? member.full_name : "Staff Member"}
         back
       />
 
@@ -392,9 +486,9 @@ export function StaffDetailPage() {
           {/* Hero card */}
           <div className="flex flex-col items-center gap-2 px-4 pt-2 pb-5">
             <Avatar
-              firstName={member.first_name}
-              lastName={member.last_name}
-              src={member.avatar?.src}
+              firstName={firstName}
+              lastName={lastName}
+              src={member.avatar_url ?? undefined}
               size="xl"
             />
 
@@ -402,7 +496,7 @@ export function StaffDetailPage() {
               className="text-xl font-bold font-serif mt-1"
               style={{ color: "var(--text-primary)" }}
             >
-              {member.first_name} {member.last_name}
+              {member.full_name}
             </h2>
 
             {member.email && (
@@ -417,22 +511,56 @@ export function StaffDetailPage() {
               </div>
             )}
 
+            {member.phone && (
+              <div className="flex items-center gap-1.5">
+                <Phone size={14} style={{ color: "var(--text-muted)" }} />
+                <span
+                  className="text-sm"
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  {member.phone}
+                </span>
+              </div>
+            )}
+
             {/* Badges */}
             <div className="flex items-center gap-2 mt-1 flex-wrap justify-center">
-              {member.administrator && (
+              {member.role && (
+                <Badge variant="default">{member.role}</Badge>
+              )}
+              {member.department && (
+                <Badge variant="outline">
+                  <Building2 size={9} />
+                  {member.department}
+                </Badge>
+              )}
+              {isAdmin(member) && (
                 <Badge variant="info">
                   <Shield size={9} />
                   Admin
                 </Badge>
               )}
-              {member.disabled && (
+              {!member.is_active && (
                 <Badge variant="warning">
                   <ShieldOff size={9} />
-                  Disabled
+                  Inactive
                 </Badge>
               )}
               {isCurrentUser && <Badge variant="gold">You</Badge>}
             </div>
+
+            {/* Last login */}
+            {member.last_login_at && (
+              <div className="flex items-center gap-1.5 mt-1">
+                <Clock size={12} style={{ color: "var(--text-muted)" }} />
+                <span
+                  className="text-xs"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Last login {formatRelativeDate(member.last_login_at)}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Stats row */}
@@ -443,13 +571,8 @@ export function StaffDetailPage() {
               loading={statsLoading}
             />
             <MiniStatCard
-              value={contactCount.data ?? 0}
-              label="Contacts"
-              loading={statsLoading}
-            />
-            <MiniStatCard
-              value={noteCount.data ?? 0}
-              label="Notes"
+              value={clientCount.data ?? 0}
+              label="Clients"
               loading={statsLoading}
             />
           </div>
@@ -465,7 +588,7 @@ export function StaffDetailPage() {
                 <DealsSkeleton />
               ) : recentDeals.data && recentDeals.data.length > 0 ? (
                 recentDeals.data.map((deal) => (
-                  <DealRow
+                  <DealRowItem
                     key={deal.id}
                     deal={deal}
                     onTap={() => navigate(`/deals/${deal.id}`)}
@@ -484,21 +607,21 @@ export function StaffDetailPage() {
             </MobileCard>
           </div>
 
-          {/* Recent Contacts */}
+          {/* Recent Clients */}
           <div className="mt-6">
-            <SectionTitle count={recentContacts.data?.length}>
-              Recent Contacts
+            <SectionTitle count={recentClients.data?.length}>
+              Recent Clients
             </SectionTitle>
 
             <MobileCard noPadding className="mx-4 overflow-hidden">
-              {recentContacts.isLoading ? (
+              {recentClients.isLoading ? (
                 <ListSkeleton count={3} />
-              ) : recentContacts.data && recentContacts.data.length > 0 ? (
-                recentContacts.data.map((contact) => (
-                  <ContactRow
-                    key={contact.id}
-                    contact={contact}
-                    onTap={() => navigate(`/contacts/${contact.id}`)}
+              ) : recentClients.data && recentClients.data.length > 0 ? (
+                recentClients.data.map((client) => (
+                  <ClientRowItem
+                    key={client.id}
+                    client={client}
+                    onTap={() => navigate(`/clients/${client.id}`)}
                   />
                 ))
               ) : (
@@ -507,12 +630,15 @@ export function StaffDetailPage() {
                     className="text-sm"
                     style={{ color: "var(--text-muted)" }}
                   >
-                    No contacts managed
+                    No clients managed
                   </p>
                 </div>
               )}
             </MobileCard>
           </div>
+
+          {/* Permissions */}
+          <PermissionsCard permissions={member.permissions} />
         </>
       ) : null}
     </div>

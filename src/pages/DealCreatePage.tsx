@@ -5,30 +5,30 @@ import { X } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../providers/AuthProvider";
 import { PageHeader } from "../components/ui/PageHeader";
+import type { Client } from "../types";
+
 // ── Constants ────────────────────────────────────────────────
 
-interface CompanyOption {
-  id: number;
+interface ClientOption {
+  id: string;
   name: string;
 }
 
-interface ContactOption {
-  id: number;
-  first_name: string;
-  last_name: string;
-}
-
 const STAGES = [
-  { value: "opportunity", label: "Opportunity" },
-  { value: "proposal-sent", label: "Proposal Sent" },
-  { value: "in-negotiation", label: "In Negotiation" },
-  { value: "won", label: "Won" },
-  { value: "lost", label: "Lost" },
-  { value: "cancelled", label: "Cancelled" },
+  { value: "sourcing", label: "Sourcing" },
+  { value: "nda", label: "NDA" },
+  { value: "dd", label: "Due Diligence" },
+  { value: "negotiation", label: "Negotiation" },
+  { value: "legal", label: "Legal" },
+  { value: "closed_won", label: "Closed Won" },
+  { value: "closed_lost", label: "Closed Lost" },
 ];
 
-const CATEGORIES = [
+const DEAL_TYPES = [
   "M&A",
+  "Acquisition",
+  "Divestiture",
+  "Merger",
   "Investment",
   "Advisory",
   "Consulting",
@@ -38,28 +38,45 @@ const CATEGORIES = [
   "Other",
 ];
 
+const PRIORITIES = [
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+  { value: "critical", label: "Critical" },
+];
+
+const CURRENCIES = ["USD", "EUR", "GBP", "CHF", "SGD", "CAD", "AUD"];
+
 // ── Form shape ───────────────────────────────────────────────
 
 interface DealForm {
   name: string;
-  company_id: string;
-  contact_ids: number[];
+  client_id: string;
   stage: string;
-  category: string;
-  amount: string;
-  expected_closing_date: string;
+  deal_type: string;
+  deal_value: string;
+  currency: string;
   description: string;
+  priority: string;
+  expected_close_date: string;
+  target_company: string;
+  buyer_name: string;
+  seller_name: string;
 }
 
 const initialForm: DealForm = {
   name: "",
-  company_id: "",
-  contact_ids: [],
-  stage: "opportunity",
-  category: "",
-  amount: "",
-  expected_closing_date: "",
+  client_id: "",
+  stage: "sourcing",
+  deal_type: "",
+  deal_value: "",
+  currency: "USD",
   description: "",
+  priority: "",
+  expected_close_date: "",
+  target_company: "",
+  buyer_name: "",
+  seller_name: "",
 };
 
 // ── Style tokens ─────────────────────────────────────────────
@@ -80,92 +97,60 @@ const labelClass = "block text-xs font-medium mb-1.5";
 export function DealCreatePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { sale } = useAuth();
+  const { user } = useAuth();
 
   const [form, setForm] = useState<DealForm>(initialForm);
   const [nameError, setNameError] = useState(false);
-  const [companyError, setCompanyError] = useState(false);
-  const [companySearch, setCompanySearch] = useState("");
-  const [companyDropdownOpen, setCompanyDropdownOpen] = useState(false);
-  const [contactSearch, setContactSearch] = useState("");
-  const [contactDropdownOpen, setContactDropdownOpen] = useState(false);
+  const [clientSearch, setClientSearch] = useState("");
+  const [clientDropdownOpen, setClientDropdownOpen] = useState(false);
 
   // ── Queries ──────────────────────────────────────────────
 
-  const { data: companies = [] } = useQuery<CompanyOption[]>({
-    queryKey: ["companies-select"],
+  const { data: clients = [] } = useQuery<ClientOption[]>({
+    queryKey: ["clients-select"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("companies")
+        .from("clients")
         .select("id, name")
         .order("name");
       if (error) throw error;
-      return (data ?? []) as CompanyOption[];
+      return (data ?? []) as ClientOption[];
     },
   });
 
-  const selectedCompanyId = form.company_id ? Number(form.company_id) : null;
-
-  const { data: contacts = [] } = useQuery<ContactOption[]>({
-    queryKey: ["contacts-by-company", selectedCompanyId],
-    queryFn: async () => {
-      if (!selectedCompanyId) return [];
-      const { data, error } = await supabase
-        .from("contacts")
-        .select("id, first_name, last_name")
-        .eq("company_id", selectedCompanyId)
-        .order("last_name");
-      if (error) throw error;
-      return (data ?? []) as ContactOption[];
-    },
-    enabled: !!selectedCompanyId,
-  });
+  const selectedClientId = form.client_id || null;
 
   // ── Derived ──────────────────────────────────────────────
 
-  const filteredCompanies = useMemo(() => {
-    if (!companySearch.trim()) return companies;
-    const term = companySearch.toLowerCase();
-    return companies.filter((c) => c.name.toLowerCase().includes(term));
-  }, [companies, companySearch]);
+  const filteredClients = useMemo(() => {
+    if (!clientSearch.trim()) return clients;
+    const term = clientSearch.toLowerCase();
+    return clients.filter((c) => c.name.toLowerCase().includes(term));
+  }, [clients, clientSearch]);
 
-  const filteredContacts = useMemo(() => {
-    if (!contactSearch.trim()) return contacts;
-    const term = contactSearch.toLowerCase();
-    return contacts.filter(
-      (c) =>
-        c.first_name.toLowerCase().includes(term) ||
-        c.last_name.toLowerCase().includes(term)
-    );
-  }, [contacts, contactSearch]);
-
-  const selectedCompanyName = useMemo(() => {
-    if (!selectedCompanyId) return "";
-    return companies.find((c) => c.id === selectedCompanyId)?.name ?? "";
-  }, [companies, selectedCompanyId]);
-
-  const selectedContacts = useMemo(() => {
-    return contacts.filter((c) => form.contact_ids.includes(c.id));
-  }, [contacts, form.contact_ids]);
+  const selectedClientName = useMemo(() => {
+    if (!selectedClientId) return "";
+    return clients.find((c) => c.id === selectedClientId)?.name ?? "";
+  }, [clients, selectedClientId]);
 
   // ── Mutation ─────────────────────────────────────────────
 
   const mutation = useMutation({
     mutationFn: async (data: DealForm) => {
-      const now = new Date().toISOString();
       const { error } = await supabase.from("deals").insert({
         name: data.name.trim(),
-        company_id: Number(data.company_id),
-        contact_ids: data.contact_ids,
+        client_id: data.client_id || null,
         stage: data.stage,
-        category: data.category || null,
-        amount: data.amount ? Number(data.amount) : 0,
-        expected_closing_date: data.expected_closing_date || null,
+        deal_type: data.deal_type || null,
+        deal_value: data.deal_value ? Number(data.deal_value) : null,
+        currency: data.currency || "USD",
         description: data.description || null,
-        sales_id: sale!.id,
-        created_at: now,
-        updated_at: now,
-        index: 0,
+        priority: data.priority || null,
+        expected_close_date: data.expected_close_date || null,
+        target_company: data.target_company || null,
+        buyer_name: data.buyer_name || null,
+        seller_name: data.seller_name || null,
+        created_by: user?.id ?? null,
       });
       if (error) throw error;
     },
@@ -187,51 +172,24 @@ export function DealCreatePage() {
     if (name === "name" && nameError) setNameError(false);
   };
 
-  const handleSelectCompany = (company: CompanyOption) => {
-    setForm((prev) => ({
-      ...prev,
-      company_id: String(company.id),
-      contact_ids: [], // reset contacts when company changes
-    }));
-    setCompanySearch("");
-    setCompanyDropdownOpen(false);
-    if (companyError) setCompanyError(false);
+  const handleSelectClient = (client: ClientOption) => {
+    setForm((prev) => ({ ...prev, client_id: client.id }));
+    setClientSearch("");
+    setClientDropdownOpen(false);
   };
 
-  const handleClearCompany = () => {
-    setForm((prev) => ({ ...prev, company_id: "", contact_ids: [] }));
-    setCompanySearch("");
-  };
-
-  const handleToggleContact = (contactId: number) => {
-    setForm((prev) => {
-      const ids = prev.contact_ids.includes(contactId)
-        ? prev.contact_ids.filter((id) => id !== contactId)
-        : [...prev.contact_ids, contactId];
-      return { ...prev, contact_ids: ids };
-    });
-  };
-
-  const handleRemoveContact = (contactId: number) => {
-    setForm((prev) => ({
-      ...prev,
-      contact_ids: prev.contact_ids.filter((id) => id !== contactId),
-    }));
+  const handleClearClient = () => {
+    setForm((prev) => ({ ...prev, client_id: "" }));
+    setClientSearch("");
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    let hasError = false;
 
     if (!form.name.trim()) {
       setNameError(true);
-      hasError = true;
+      return;
     }
-    if (!form.company_id) {
-      setCompanyError(true);
-      hasError = true;
-    }
-    if (hasError) return;
 
     mutation.mutate(form);
   };
@@ -278,29 +236,24 @@ export function DealCreatePage() {
           )}
         </div>
 
-        {/* Company (required, searchable) */}
+        {/* Client (searchable) */}
         <div className="relative">
           <label
             className={labelClass}
             style={{ color: "var(--text-secondary)" }}
           >
-            Company *
+            Client
           </label>
 
-          {selectedCompanyName ? (
+          {selectedClientName ? (
             <div
               className={inputClass + " flex items-center justify-between"}
-              style={{
-                ...inputStyle,
-                borderColor: companyError
-                  ? "var(--danger)"
-                  : "var(--border-color)",
-              }}
+              style={inputStyle}
             >
-              <span className="truncate">{selectedCompanyName}</span>
+              <span className="truncate">{selectedClientName}</span>
               <button
                 type="button"
-                onClick={handleClearCompany}
+                onClick={handleClearClient}
                 className="p-0.5 rounded-full ml-2 flex-shrink-0"
                 style={{ color: "var(--text-muted)" }}
               >
@@ -310,34 +263,20 @@ export function DealCreatePage() {
           ) : (
             <input
               type="text"
-              value={companySearch}
+              value={clientSearch}
               onChange={(e) => {
-                setCompanySearch(e.target.value);
-                setCompanyDropdownOpen(true);
+                setClientSearch(e.target.value);
+                setClientDropdownOpen(true);
               }}
-              onFocus={() => setCompanyDropdownOpen(true)}
-              placeholder="Search company..."
+              onFocus={() => setClientDropdownOpen(true)}
+              placeholder="Search client..."
               className={inputClass}
-              style={{
-                ...inputStyle,
-                borderColor: companyError
-                  ? "var(--danger)"
-                  : "var(--border-color)",
-              }}
+              style={inputStyle}
             />
           )}
 
-          {companyError && !selectedCompanyName && (
-            <p
-              className="text-xs mt-1"
-              style={{ color: "var(--danger)" }}
-            >
-              Company is required
-            </p>
-          )}
-
-          {/* Company dropdown */}
-          {companyDropdownOpen && !selectedCompanyName && (
+          {/* Client dropdown */}
+          {clientDropdownOpen && !selectedClientName && (
             <div
               className="absolute left-0 right-0 z-20 mt-1 max-h-48 overflow-y-auto rounded-xl border shadow-lg"
               style={{
@@ -345,139 +284,32 @@ export function DealCreatePage() {
                 borderColor: "var(--border-color)",
               }}
             >
-              {filteredCompanies.length === 0 ? (
+              {filteredClients.length === 0 ? (
                 <div
                   className="px-4 py-3 text-xs"
                   style={{ color: "var(--text-muted)" }}
                 >
-                  No companies found
+                  No clients found
                 </div>
               ) : (
-                filteredCompanies.map((company) => (
+                filteredClients.map((client) => (
                   <button
-                    key={company.id}
+                    key={client.id}
                     type="button"
-                    onClick={() => handleSelectCompany(company)}
+                    onClick={() => handleSelectClient(client)}
                     className="w-full text-left px-4 py-2.5 text-sm transition-colors active:bg-[var(--bg-muted)]"
                     style={{
                       color: "var(--text-primary)",
                       borderBottom: "1px solid var(--border-light, var(--border-color))",
                     }}
                   >
-                    {company.name}
+                    {client.name}
                   </button>
                 ))
               )}
             </div>
           )}
         </div>
-
-        {/* Contacts (multi-select, filtered by company) */}
-        {selectedCompanyId && (
-          <div className="relative">
-            <label
-              className={labelClass}
-              style={{ color: "var(--text-secondary)" }}
-            >
-              Contacts
-            </label>
-
-            {/* Selected contact chips */}
-            {selectedContacts.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                {selectedContacts.map((contact) => (
-                  <span
-                    key={contact.id}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium"
-                    style={{
-                      background: "var(--bg-muted, rgba(255,255,255,0.08))",
-                      color: "var(--gold)",
-                    }}
-                  >
-                    {contact.first_name} {contact.last_name}
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveContact(contact.id)}
-                      className="ml-0.5"
-                      style={{ color: "var(--text-muted)" }}
-                    >
-                      <X size={12} />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-
-            <input
-              type="text"
-              value={contactSearch}
-              onChange={(e) => {
-                setContactSearch(e.target.value);
-                setContactDropdownOpen(true);
-              }}
-              onFocus={() => setContactDropdownOpen(true)}
-              placeholder="Search contacts..."
-              className={inputClass}
-              style={inputStyle}
-            />
-
-            {/* Contacts dropdown */}
-            {contactDropdownOpen && (
-              <div
-                className="absolute left-0 right-0 z-20 mt-1 max-h-48 overflow-y-auto rounded-xl border shadow-lg"
-                style={{
-                  background: "var(--bg-card)",
-                  borderColor: "var(--border-color)",
-                }}
-              >
-                {filteredContacts.length === 0 ? (
-                  <div
-                    className="px-4 py-3 text-xs"
-                    style={{ color: "var(--text-muted)" }}
-                  >
-                    {contacts.length === 0
-                      ? "No contacts for this company"
-                      : "No matches found"}
-                  </div>
-                ) : (
-                  filteredContacts.map((contact) => {
-                    const isSelected = form.contact_ids.includes(contact.id);
-                    return (
-                      <button
-                        key={contact.id}
-                        type="button"
-                        onClick={() => {
-                          handleToggleContact(contact.id);
-                          setContactSearch("");
-                        }}
-                        className="w-full text-left px-4 py-2.5 text-sm flex items-center justify-between transition-colors active:bg-[var(--bg-muted)]"
-                        style={{
-                          color: isSelected
-                            ? "var(--gold)"
-                            : "var(--text-primary)",
-                          borderBottom:
-                            "1px solid var(--border-light, var(--border-color))",
-                        }}
-                      >
-                        <span>
-                          {contact.first_name} {contact.last_name}
-                        </span>
-                        {isSelected && (
-                          <span
-                            className="text-xs font-medium"
-                            style={{ color: "var(--gold)" }}
-                          >
-                            Selected
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })
-                )}
-              </div>
-            )}
-          </div>
-        )}
 
         {/* Stage */}
         <div>
@@ -502,72 +334,176 @@ export function DealCreatePage() {
           </select>
         </div>
 
-        {/* Category */}
+        {/* Deal Type */}
         <div>
           <label
             className={labelClass}
             style={{ color: "var(--text-secondary)" }}
           >
-            Category
+            Deal Type
           </label>
           <select
-            name="category"
-            value={form.category}
+            name="deal_type"
+            value={form.deal_type}
             onChange={handleChange}
             className={inputClass}
             style={inputStyle}
           >
-            <option value="">Select category</option>
-            {CATEGORIES.map((c) => (
-              <option key={c} value={c}>
-                {c}
+            <option value="">Select type</option>
+            {DEAL_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {t}
               </option>
             ))}
           </select>
         </div>
 
-        {/* Amount */}
-        <div>
-          <label
-            className={labelClass}
-            style={{ color: "var(--text-secondary)" }}
-          >
-            Amount
-          </label>
-          <div className="relative">
-            <span
-              className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-medium"
-              style={{ color: "var(--text-muted)" }}
+        {/* Deal Value + Currency */}
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <label
+              className={labelClass}
+              style={{ color: "var(--text-secondary)" }}
             >
-              $
-            </span>
-            <input
-              type="number"
-              name="amount"
-              value={form.amount}
+              Deal Value
+            </label>
+            <div className="relative">
+              <span
+                className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-medium"
+                style={{ color: "var(--text-muted)" }}
+              >
+                $
+              </span>
+              <input
+                type="number"
+                name="deal_value"
+                value={form.deal_value}
+                onChange={handleChange}
+                placeholder="0"
+                min="0"
+                step="any"
+                className={inputClass + " pl-8"}
+                style={inputStyle}
+              />
+            </div>
+          </div>
+          <div className="w-28">
+            <label
+              className={labelClass}
+              style={{ color: "var(--text-secondary)" }}
+            >
+              Currency
+            </label>
+            <select
+              name="currency"
+              value={form.currency}
               onChange={handleChange}
-              placeholder="0"
-              min="0"
-              step="any"
-              className={inputClass + " pl-8"}
+              className={inputClass}
               style={inputStyle}
-            />
+            >
+              {CURRENCIES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 
-        {/* Expected Closing Date */}
+        {/* Priority */}
         <div>
           <label
             className={labelClass}
             style={{ color: "var(--text-secondary)" }}
           >
-            Expected Closing Date
+            Priority
+          </label>
+          <select
+            name="priority"
+            value={form.priority}
+            onChange={handleChange}
+            className={inputClass}
+            style={inputStyle}
+          >
+            <option value="">Select priority</option>
+            {PRIORITIES.map((p) => (
+              <option key={p.value} value={p.value}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Expected Close Date */}
+        <div>
+          <label
+            className={labelClass}
+            style={{ color: "var(--text-secondary)" }}
+          >
+            Expected Close Date
           </label>
           <input
             type="date"
-            name="expected_closing_date"
-            value={form.expected_closing_date}
+            name="expected_close_date"
+            value={form.expected_close_date}
             onChange={handleChange}
+            className={inputClass}
+            style={inputStyle}
+          />
+        </div>
+
+        {/* Target Company */}
+        <div>
+          <label
+            className={labelClass}
+            style={{ color: "var(--text-secondary)" }}
+          >
+            Target Company
+          </label>
+          <input
+            type="text"
+            name="target_company"
+            value={form.target_company}
+            onChange={handleChange}
+            placeholder="Target company name"
+            className={inputClass}
+            style={inputStyle}
+          />
+        </div>
+
+        {/* Buyer Name */}
+        <div>
+          <label
+            className={labelClass}
+            style={{ color: "var(--text-secondary)" }}
+          >
+            Buyer Name
+          </label>
+          <input
+            type="text"
+            name="buyer_name"
+            value={form.buyer_name}
+            onChange={handleChange}
+            placeholder="Buyer name"
+            className={inputClass}
+            style={inputStyle}
+          />
+        </div>
+
+        {/* Seller Name */}
+        <div>
+          <label
+            className={labelClass}
+            style={{ color: "var(--text-secondary)" }}
+          >
+            Seller Name
+          </label>
+          <input
+            type="text"
+            name="seller_name"
+            value={form.seller_name}
+            onChange={handleChange}
+            placeholder="Seller name"
             className={inputClass}
             style={inputStyle}
           />
@@ -613,14 +549,11 @@ export function DealCreatePage() {
         </button>
       </form>
 
-      {/* Backdrop to close dropdowns */}
-      {(companyDropdownOpen || contactDropdownOpen) && (
+      {/* Backdrop to close dropdown */}
+      {clientDropdownOpen && (
         <div
           className="fixed inset-0 z-10"
-          onClick={() => {
-            setCompanyDropdownOpen(false);
-            setContactDropdownOpen(false);
-          }}
+          onClick={() => setClientDropdownOpen(false)}
         />
       )}
     </div>

@@ -7,6 +7,7 @@ import {
   Mail,
   ChevronRight,
   UserCog,
+  Building2,
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../providers/AuthProvider";
@@ -16,46 +17,88 @@ import { Badge } from "../components/ui/Badge";
 import { EmptyState } from "../components/ui/EmptyState";
 import { ListSkeleton } from "../components/ui/Skeleton";
 import { SectionTitle } from "../components/ui/MobileCard";
-import type { Sale } from "../types";
 
-async function fetchStaff(search: string): Promise<Sale[]> {
+// ---------------------------------------------------------------------------
+// staff_users row shape (matches matwal-premium Supabase schema)
+// ---------------------------------------------------------------------------
+
+interface StaffUser {
+  id: string;
+  user_id: string;
+  email: string;
+  full_name: string;
+  role: string;
+  department: string | null;
+  phone: string | null;
+  avatar_url: string | null;
+  is_active: boolean;
+  permissions: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+  organization_id: string | null;
+  last_login_at: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Data fetcher
+// ---------------------------------------------------------------------------
+
+async function fetchStaff(search: string): Promise<StaffUser[]> {
   let query = supabase
-    .from("sales")
+    .from("staff_users")
     .select("*")
-    .order("first_name");
+    .order("full_name");
 
   if (search.trim()) {
     const q = search.trim();
-    query = query.or(
-      `first_name.ilike.%${q}%,last_name.ilike.%${q}%,email.ilike.%${q}%`
-    );
+    query = query.or(`full_name.ilike.%${q}%,email.ilike.%${q}%`);
   }
 
   const { data, error } = await query;
   if (error) throw error;
-  return data ?? [];
+  return (data ?? []) as StaffUser[];
 }
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function isAdmin(staff: StaffUser): boolean {
+  if (staff.role === "admin") return true;
+  if (
+    staff.permissions &&
+    typeof staff.permissions === "object" &&
+    "admin" in staff.permissions &&
+    staff.permissions.admin
+  )
+    return true;
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
 
 export function StaffPage() {
   const [search, setSearch] = useState("");
   const navigate = useNavigate();
-  const { sale: currentSale } = useAuth();
+  const { user } = useAuth();
 
   const {
     data: staff,
     isLoading,
     isError,
     error,
-  } = useQuery<Sale[]>({
+  } = useQuery<StaffUser[]>({
     queryKey: ["staff", search],
     queryFn: () => fetchStaff(search),
   });
 
-  const { active, disabled } = useMemo(() => {
-    if (!staff) return { active: [], disabled: [] };
+  const { active, inactive } = useMemo(() => {
+    if (!staff) return { active: [], inactive: [] };
     return {
-      active: staff.filter((s) => !s.disabled),
-      disabled: staff.filter((s) => s.disabled),
+      active: staff.filter((s) => s.is_active),
+      inactive: staff.filter((s) => !s.is_active),
     };
   }, [staff]);
 
@@ -135,7 +178,7 @@ export function StaffPage() {
                   <StaffRow
                     key={member.id}
                     member={member}
-                    isCurrentUser={member.id === currentSale?.id}
+                    isCurrentUser={member.user_id === user?.id}
                     onTap={() => navigate(`/staff/${member.id}`)}
                   />
                 ))}
@@ -143,16 +186,16 @@ export function StaffPage() {
             </div>
           )}
 
-          {/* Disabled section */}
-          {disabled.length > 0 && (
+          {/* Inactive section */}
+          {inactive.length > 0 && (
             <div style={{ opacity: 0.6 }}>
-              <SectionTitle count={disabled.length}>Disabled</SectionTitle>
+              <SectionTitle count={inactive.length}>Inactive</SectionTitle>
               <div>
-                {disabled.map((member) => (
+                {inactive.map((member) => (
                   <StaffRow
                     key={member.id}
                     member={member}
-                    isCurrentUser={member.id === currentSale?.id}
+                    isCurrentUser={member.user_id === user?.id}
                     onTap={() => navigate(`/staff/${member.id}`)}
                   />
                 ))}
@@ -165,15 +208,17 @@ export function StaffPage() {
   );
 }
 
-/* ─── Staff row component ──────────────────────────────────── */
+/* ---- Staff row component ------------------------------------------------ */
 
 interface StaffRowProps {
-  member: Sale;
+  member: StaffUser;
   isCurrentUser: boolean;
   onTap: () => void;
 }
 
 function StaffRow({ member, isCurrentUser, onTap }: StaffRowProps) {
+  const [firstName = "", lastName = ""] = (member.full_name || "").split(" ");
+
   return (
     <button
       onClick={onTap}
@@ -182,9 +227,9 @@ function StaffRow({ member, isCurrentUser, onTap }: StaffRowProps) {
     >
       {/* Avatar */}
       <Avatar
-        firstName={member.first_name}
-        lastName={member.last_name}
-        src={member.avatar?.src}
+        firstName={firstName}
+        lastName={lastName}
+        src={member.avatar_url ?? undefined}
         size="lg"
       />
 
@@ -196,24 +241,22 @@ function StaffRow({ member, isCurrentUser, onTap }: StaffRowProps) {
             className="text-sm font-semibold truncate"
             style={{ color: "var(--text-primary)" }}
           >
-            {member.first_name} {member.last_name}
+            {member.full_name}
           </span>
 
-          {isCurrentUser && (
-            <Badge variant="gold">You</Badge>
-          )}
+          {isCurrentUser && <Badge variant="gold">You</Badge>}
 
-          {member.administrator && (
+          {isAdmin(member) && (
             <Badge variant="info">
               <Shield size={9} />
               Admin
             </Badge>
           )}
 
-          {member.disabled && (
+          {!member.is_active && (
             <Badge variant="warning">
               <ShieldOff size={9} />
-              Disabled
+              Inactive
             </Badge>
           )}
         </div>
@@ -233,6 +276,27 @@ function StaffRow({ member, isCurrentUser, onTap }: StaffRowProps) {
             </span>
           </div>
         )}
+
+        {/* Role + Department */}
+        <div className="flex items-center gap-2 mt-1 flex-wrap">
+          {member.role && (
+            <Badge variant="default">{member.role}</Badge>
+          )}
+          {member.department && (
+            <span className="flex items-center gap-1">
+              <Building2
+                size={10}
+                style={{ color: "var(--text-muted)", flexShrink: 0 }}
+              />
+              <span
+                className="text-[10px]"
+                style={{ color: "var(--text-muted)" }}
+              >
+                {member.department}
+              </span>
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Chevron */}

@@ -8,7 +8,7 @@ export function useList<T>(
     select?: string;
     order?: { column: string; ascending?: boolean };
     filter?: Record<string, unknown>;
-    search?: { column: string; value: string };
+    search?: { columns: string[]; value: string };
     enabled?: boolean;
   }
 ) {
@@ -33,10 +33,11 @@ export function useList<T>(
         });
       }
 
-      if (options?.search?.value) {
-        query = query.or(
-          `first_name.ilike.%${options.search.value}%,last_name.ilike.%${options.search.value}%`
-        );
+      if (options?.search?.value && options.search.columns.length > 0) {
+        const orClause = options.search.columns
+          .map((col) => `${col}.ilike.%${options.search!.value}%`)
+          .join(",");
+        query = query.or(orClause);
       }
 
       const { data, error } = await query;
