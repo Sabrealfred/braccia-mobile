@@ -1,0 +1,205 @@
+@import "tailwindcss";
+
+/* ============================================================
+   Braccia Capital Mobile — Theme
+   Charcoal + Antique Gold + Warm Ivory
+   ============================================================ */
+
+:root {
+  /* Core palette */
+  --charcoal: #1a1a1a;
+  --charcoal-dark: #0d0d0d;
+  --charcoal-light: #2a2a2a;
+  --gold: #b8860b;
+  --gold-light: #d4a843;
+  --gold-dim: #8a6508;
+  --ivory: #f5f4f0;
+  --stone: #e8e6e0;
+  --white: #ffffff;
+
+  /* Semantic colors */
+  --bg-primary: var(--white);
+  --bg-secondary: var(--ivory);
+  --bg-card: var(--white);
+  --bg-header: var(--charcoal);
+  --bg-nav: var(--white);
+  --bg-input: var(--ivory);
+  --bg-muted: var(--stone);
+
+  --text-primary: var(--charcoal);
+  --text-secondary: #666666;
+  --text-muted: #999999;
+  --text-inverse: var(--ivory);
+  --text-gold: var(--gold);
+
+  --border-color: #e0e0e0;
+  --border-light: #f0f0f0;
+
+  --accent: var(--gold);
+  --accent-text: var(--white);
+
+  --success: #2a9d8f;
+  --warning: #e9c46a;
+  --danger: #e63946;
+  --info: #457b9d;
+
+  /* Avatar colors */
+  --avatar-0: #5b7fa5;
+  --avatar-1: #c97b63;
+  --avatar-2: #6b9080;
+  --avatar-3: #d4a843;
+  --avatar-4: #8b6f8e;
+  --avatar-5: #5a8f7b;
+  --avatar-6: #7a97b5;
+  --avatar-7: #c47d5e;
+  --avatar-8: #a8b065;
+  --avatar-9: #8e7fa0;
+
+  /* Spacing */
+  --safe-top: env(safe-area-inset-top);
+  --safe-bottom: env(safe-area-inset-bottom);
+  --nav-height: 56px;
+  --bottom-nav-height: 64px;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-full: 9999px;
+}
+
+/* Dark mode */
+.dark {
+  --bg-primary: #121212;
+  --bg-secondary: #1a1a1a;
+  --bg-card: #1e1e1e;
+  --bg-header: #0d0d0d;
+  --bg-nav: #1a1a1a;
+  --bg-input: #2a2a2a;
+  --bg-muted: #2a2a2a;
+
+  --text-primary: #f0f0f0;
+  --text-secondary: #b0b0b0;
+  --text-muted: #777777;
+  --text-inverse: var(--charcoal);
+  --text-gold: var(--gold-light);
+
+  --border-color: #333333;
+  --border-light: #2a2a2a;
+
+  --avatar-0: #3d5a7a;
+  --avatar-1: #9a5b45;
+  --avatar-2: #4d7060;
+  --avatar-3: #b08830;
+  --avatar-4: #6b4f6e;
+  --avatar-5: #3a6f5b;
+  --avatar-6: #5a7795;
+  --avatar-7: #a45d3e;
+  --avatar-8: #889045;
+  --avatar-9: #6e5f80;
+}
+
+/* Base styles */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100dvh;
+  overscroll-behavior-y: contain;
+}
+
+#root {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: var(--radius-full);
+}
+
+/* Utilities */
+.font-serif {
+  font-family: "DM Serif Display", Georgia, serif;
+}
+
+.text-gold {
+  color: var(--text-gold);
+}
+
+.bg-gold {
+  background: var(--gold);
+}
+
+.safe-top {
+  padding-top: var(--safe-top);
+}
+
+.safe-bottom {
+  padding-bottom: calc(var(--safe-bottom) + var(--bottom-nav-height) + 16px);
+}
+
+/* Skeleton animation */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--bg-muted) 25%,
+    var(--border-light) 50%,
+    var(--bg-muted) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+}
+
+/* FAB shadow */
+.fab-shadow {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25), 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Card styling */
+.card-mobile {
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-light);
+}
+
+/* Glass */
+.glass {
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+
+/* Kanban column */
+.kanban-col {
+  min-width: 280px;
+  max-width: 300px;
+}
