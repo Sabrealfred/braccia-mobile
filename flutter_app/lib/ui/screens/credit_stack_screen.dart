@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/formatters.dart';
 import '../../core/theme.dart';
+import '../../data/repository.dart';
 import '../widgets/app_widgets.dart';
 
 // ── Credit program model ────────────────────────────────────────────────────
@@ -227,13 +228,10 @@ List<CreditProgram> _seedPrograms() {
 
 final _creditProgramsProvider =
     FutureProvider<List<CreditProgram>>((ref) async {
-  // Try Supabase table first
-  // We import repository directly since this file is self-contained
-  // (no shared provider for this table exists)
-  try {
-    // This import is NOT available here — we access via package import below
-  } catch (_) {}
-  return _seedPrograms();
+  // Backend-first: read the credit_programs table, fall back to seed data.
+  final rows = await repository.fetchTable('credit_programs');
+  if (rows.isEmpty) return _seedPrograms();
+  return rows.map(CreditProgram.fromRow).toList();
 });
 
 // ── Screen ───────────────────────────────────────────────────────────────────
