@@ -25,7 +25,9 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
   }
 
   void _open(AppModule m) {
-    if (m.bespoke) {
+    if (m.id == 'ai') {
+      context.go('/ai'); // AI is a root tab
+    } else if (m.bespoke) {
       context.push('/${m.id}');
     } else {
       context.push('/module/${m.id}');

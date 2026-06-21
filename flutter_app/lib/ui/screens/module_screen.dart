@@ -6,6 +6,7 @@ import '../../core/formatters.dart';
 import '../../core/modules.dart';
 import '../../core/theme.dart';
 import '../../providers/providers.dart';
+import '../modules/registry.dart';
 import '../widgets/app_widgets.dart';
 
 /// Category-adaptive screen opened from any hub tile. Renders one of three
@@ -56,6 +57,9 @@ class ModuleScreen extends ConsumerWidget {
   }
 
   Widget _body(BuildContext context, WidgetRef ref, AppModule m) {
+    // Bespoke body for this module, if one is registered.
+    final bespoke = moduleBodyFor(m.id);
+    if (bespoke != null) return bespoke;
     switch (m.kind) {
       case ModuleKind.kpi:
         return _KpiTemplate(module: m);

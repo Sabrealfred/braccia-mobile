@@ -68,8 +68,9 @@ class AppModule {
 /// module screens. KPI/Chat/List kinds map to the three baseline templates;
 /// `bespoke: true` modules have richer dedicated screens.
 const List<AppModule> kModules = [
-  // CRM & Sales
+  // ── CRM & Sales (12) ──────────────────────────────────────
   AppModule(id: 'leads', label: 'Leads', icon: Icons.person_add_alt_1, group: ModuleGroup.crm, kind: ModuleKind.list, table: 'clients', bespoke: true),
+  AppModule(id: 'deals', label: 'Deals', icon: Icons.handshake, group: ModuleGroup.crm, kind: ModuleKind.list, table: 'deals'),
   AppModule(id: 'crm', label: 'CRM', icon: Icons.dashboard_customize, group: ModuleGroup.crm, kind: ModuleKind.kpi, table: 'clients'),
   AppModule(id: 'contacts', label: 'Contacts', icon: Icons.contacts, group: ModuleGroup.crm, kind: ModuleKind.list, table: 'clients'),
   AppModule(id: 'companies', label: 'Companies', icon: Icons.business, group: ModuleGroup.crm, kind: ModuleKind.list, table: 'clients'),
@@ -77,31 +78,52 @@ const List<AppModule> kModules = [
   AppModule(id: 'portfolios', label: 'Portfolios', icon: Icons.pie_chart, group: ModuleGroup.crm, kind: ModuleKind.kpi, table: 'portfolios'),
   AppModule(id: 'staff', label: 'Staff', icon: Icons.badge, group: ModuleGroup.crm, kind: ModuleKind.list, table: 'user_profiles'),
   AppModule(id: 'approvals', label: 'Approvals', icon: Icons.fact_check, group: ModuleGroup.crm, kind: ModuleKind.list, table: 'approvals', bespoke: true),
+  AppModule(id: 'compliance', label: 'Compliance', icon: Icons.verified_user, group: ModuleGroup.crm, kind: ModuleKind.list, table: 'compliance_cases'),
+  AppModule(id: 'counterparty', label: 'Counterparty', icon: Icons.compare_arrows, group: ModuleGroup.crm, kind: ModuleKind.list, table: 'counterparties'),
+  AppModule(id: 'onboarding', label: 'Onboarding', icon: Icons.how_to_reg, group: ModuleGroup.crm, kind: ModuleKind.list, table: 'onboarding'),
 
-  // Finance & BI
+  // ── Finance & BI (14) ─────────────────────────────────────
   AppModule(id: 'bi', label: 'BI', icon: Icons.insights, group: ModuleGroup.finance, kind: ModuleKind.kpi, table: 'deals'),
+  AppModule(id: 'reports', label: 'Reports', icon: Icons.summarize, group: ModuleGroup.finance, kind: ModuleKind.list, table: 'reports'),
+  AppModule(id: 'dashboards', label: 'Dashboards', icon: Icons.space_dashboard, group: ModuleGroup.finance, kind: ModuleKind.kpi, table: 'dashboards'),
   AppModule(id: 'funds', label: 'Funds', icon: Icons.savings, group: ModuleGroup.finance, kind: ModuleKind.kpi, table: 'funds'),
+  AppModule(id: 'fund-formation', label: 'Formation', icon: Icons.add_business, group: ModuleGroup.finance, kind: ModuleKind.list, table: 'fund_formations'),
   AppModule(id: 'cash', label: 'Cash', icon: Icons.account_balance_wallet, group: ModuleGroup.finance, kind: ModuleKind.kpi, table: 'cash_accounts'),
   AppModule(id: 'billing', label: 'Billing', icon: Icons.receipt_long, group: ModuleGroup.finance, kind: ModuleKind.kpi, table: 'invoices'),
-  AppModule(id: 'wealth', label: 'Wealth', icon: Icons.public, group: ModuleGroup.finance, kind: ModuleKind.kpi, table: 'clients'),
-  AppModule(id: 'alts', label: 'Alts', icon: Icons.show_chart, group: ModuleGroup.finance, kind: ModuleKind.kpi, table: 'alternatives'),
+  AppModule(id: 'wealth', label: 'Wealth Map', icon: Icons.public, group: ModuleGroup.finance, kind: ModuleKind.kpi, table: 'clients'),
+  AppModule(id: 'alts', label: 'Alternatives', icon: Icons.show_chart, group: ModuleGroup.finance, kind: ModuleKind.kpi, table: 'alternatives'),
   AppModule(id: 'recon', label: 'Recon', icon: Icons.rule, group: ModuleGroup.finance, kind: ModuleKind.list, table: 'reconciliations'),
   AppModule(id: 'custodians', label: 'Custodians', icon: Icons.account_balance, group: ModuleGroup.finance, kind: ModuleKind.kpi, table: 'custodians'),
+  AppModule(id: 'attribution', label: 'Attribution', icon: Icons.stacked_line_chart, group: ModuleGroup.finance, kind: ModuleKind.kpi, table: 'performance'),
+  AppModule(id: 'tax', label: 'Tax', icon: Icons.calculate, group: ModuleGroup.finance, kind: ModuleKind.list, table: 'tax_strategies'),
+  AppModule(id: 'claims', label: 'Claims', icon: Icons.gavel, group: ModuleGroup.finance, kind: ModuleKind.list, table: 'claims'),
 
-  // Work · Docs · AI
+  // ── Work · Docs · AI (12) ─────────────────────────────────
+  AppModule(id: 'ai', label: 'Braccia AI', icon: Icons.auto_awesome, group: ModuleGroup.work, kind: ModuleKind.chat, bespoke: true),
   AppModule(id: 'messages', label: 'Messages', icon: Icons.forum, group: ModuleGroup.work, kind: ModuleKind.chat, table: 'messages', bespoke: true),
   AppModule(id: 'tasks', label: 'Tasks', icon: Icons.checklist, group: ModuleGroup.work, kind: ModuleKind.list, table: 'tasks', bespoke: true),
   AppModule(id: 'notes', label: 'Notes', icon: Icons.sticky_note_2, group: ModuleGroup.work, kind: ModuleKind.list, table: 'consultant_notes', bespoke: true),
-  AppModule(id: 'docs', label: 'Docs', icon: Icons.description, group: ModuleGroup.work, kind: ModuleKind.list, table: 'documents'),
-  AppModule(id: 'docs-ai', label: 'Docs AI', icon: Icons.auto_awesome, group: ModuleGroup.work, kind: ModuleKind.list, table: 'documents'),
+  AppModule(id: 'docs', label: 'Documents', icon: Icons.description, group: ModuleGroup.work, kind: ModuleKind.list, table: 'documents'),
+  AppModule(id: 'docs-ai', label: 'Docs AI', icon: Icons.document_scanner, group: ModuleGroup.work, kind: ModuleKind.list, table: 'documents'),
+  AppModule(id: 'templates', label: 'Templates', icon: Icons.dashboard, group: ModuleGroup.work, kind: ModuleKind.list, table: 'templates'),
   AppModule(id: 'projects', label: 'Projects', icon: Icons.view_kanban, group: ModuleGroup.work, kind: ModuleKind.list, table: 'projects', bespoke: true),
   AppModule(id: 'workflows', label: 'Workflows', icon: Icons.account_tree_outlined, group: ModuleGroup.work, kind: ModuleKind.list, table: 'workflows'),
   AppModule(id: 'marketing', label: 'Marketing', icon: Icons.campaign, group: ModuleGroup.work, kind: ModuleKind.list, table: 'campaigns'),
+  AppModule(id: 'activity', label: 'Activity', icon: Icons.timeline, group: ModuleGroup.work, kind: ModuleKind.list, table: 'activity'),
+  AppModule(id: 'calendar', label: 'Calendar', icon: Icons.event, group: ModuleGroup.work, kind: ModuleKind.list, table: 'events'),
 
-  // Braccia & Admin
+  // ── Braccia & Admin (12) ──────────────────────────────────
   AppModule(id: 'credit-stack', label: 'Credit ★', icon: Icons.workspace_premium, group: ModuleGroup.admin, kind: ModuleKind.list, table: 'credit_programs', special: true, bespoke: true),
   AppModule(id: 'productions', label: 'Productions', icon: Icons.movie, group: ModuleGroup.admin, kind: ModuleKind.list, table: 'productions'),
   AppModule(id: 'imports', label: 'Imports', icon: Icons.upload_file, group: ModuleGroup.admin, kind: ModuleKind.list, table: 'imports'),
+  AppModule(id: 'integrations', label: 'Integrations', icon: Icons.extension, group: ModuleGroup.admin, kind: ModuleKind.list, table: 'integrations'),
+  AppModule(id: 'developer', label: 'Developer', icon: Icons.code, group: ModuleGroup.admin, kind: ModuleKind.list, table: 'api_keys'),
+  AppModule(id: 'users', label: 'Users', icon: Icons.manage_accounts, group: ModuleGroup.admin, kind: ModuleKind.list, table: 'user_profiles'),
+  AppModule(id: 'audit', label: 'Audit Log', icon: Icons.history, group: ModuleGroup.admin, kind: ModuleKind.list, table: 'audit_logs'),
+  AppModule(id: 'security', label: 'Security', icon: Icons.shield, group: ModuleGroup.admin, kind: ModuleKind.kpi, table: 'security'),
+  AppModule(id: 'board-packs', label: 'Board Packs', icon: Icons.picture_as_pdf, group: ModuleGroup.admin, kind: ModuleKind.list, table: 'reports'),
+  AppModule(id: 'term-sheets', label: 'Term Sheets', icon: Icons.article, group: ModuleGroup.admin, kind: ModuleKind.list, table: 'templates'),
+  AppModule(id: 'engagement', label: 'Engagement', icon: Icons.handshake_outlined, group: ModuleGroup.admin, kind: ModuleKind.list, table: 'engagement_letters'),
   AppModule(id: 'settings', label: 'Settings', icon: Icons.settings, group: ModuleGroup.admin, kind: ModuleKind.list, bespoke: true),
 ];
 
