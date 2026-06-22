@@ -1,5 +1,6 @@
 package com.bracciacapital.braccia_mobile
 
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 
-class MainActivity : FlutterActivity()
+// FlutterFragmentActivity is required by local_auth for biometric prompts.
+class MainActivity : FlutterFragmentActivity()

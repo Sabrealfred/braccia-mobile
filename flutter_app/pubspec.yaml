@@ -28,6 +28,9 @@ dependencies:
   # Formatting
   intl: ^0.20.2
 
+  # Biometric (fingerprint / face) unlock
+  local_auth: ^2.3.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
